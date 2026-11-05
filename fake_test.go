@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +28,8 @@ type fakeSeerr struct {
 	sliderEmpty bool
 	// sliderDelay slows the genre slider, as a Seerr that asks TMDB for every genre.
 	sliderDelay time.Duration
+	// trending, when set, is the answer of /discover/trending.
+	trending string
 	// genres, when set, replaces the genre list.
 	genres string
 	// deleted is a Seerr user ID that no longer exists: a call made for it (X-API-User) is refused with 403, as Seerr does.
@@ -130,6 +133,15 @@ func (f *fakeSeerr) handler(t *testing.T) http.Handler {
 				return
 			}
 			_, _ = w.Write([]byte(searchJSON))
+		case path == "/discover/trending" && f.trending != "":
+			_, _ = w.Write([]byte(f.trending))
+		case (strings.HasPrefix(path, "/discover/movies") || strings.HasPrefix(path, "/discover/tv")) && f.list == "":
+			// Distinct titles per list and page, so that a page does not repeat a title by accident.
+			page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+			if page < 1 {
+				page = 1
+			}
+			_, _ = w.Write([]byte(f.listOf(strings.HasPrefix(path, "/discover/tv"), page)))
 		case strings.HasPrefix(path, "/discover/movies"), strings.HasPrefix(path, "/discover/tv"):
 			// Seerr v3.5.1 reads language here as an original-language filter: a tag with a region matches nothing.
 			if l := r.URL.Query().Get("language"); l != "" && l != "all" && strings.Contains(l, "-") {
@@ -235,4 +247,19 @@ func (f *fakeSeerr) personCredits() string {
 	 {"id":14,"mediaType":"tv","name":"Show","firstAirDate":"2015-01-01","character":"Himself","genreIds":[18]},
 	 {"id":99,"mediaType":"person","name":"x"}
 	],"crew":[{"id":15,"mediaType":"movie","title":"Made","releaseDate":"2000-01-01","job":"Producer"}]}`
+}
+
+// listOf is a list of 20 titles of one type, numbered by page: 20 titles on page 1 have IDs 1001 to 1020 (movies) or 2001 to 2020 (series),
+// page 2 the next 20 IDs, three pages in all.
+func (f *fakeSeerr) listOf(tv bool, page int) string {
+	base, kind, field := 1000, "movie", "title"
+	if tv {
+		base, kind, field = 2000, "tv", "name"
+	}
+	var rs []string
+	for i := 1; i <= 20; i++ {
+		id := base + (page-1)*20 + i
+		rs = append(rs, `{"id":`+strconv.Itoa(id)+`,"mediaType":"`+kind+`","`+field+`":"T`+strconv.Itoa(id)+`","posterPath":"/p`+strconv.Itoa(id)+`.jpg"}`)
+	}
+	return `{"page":` + strconv.Itoa(page) + `,"totalPages":3,"totalResults":60,"results":[` + strings.Join(rs, ",") + `]}`
 }

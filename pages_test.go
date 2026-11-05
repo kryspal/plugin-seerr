@@ -107,8 +107,9 @@ func TestHomePage(t *testing.T) {
 		t.Errorf("networks = %v", n.GetCards()[0])
 	}
 	// One Seerr page feeds the hero and the trending row.
-	if n := f.count("/api/v1/discover/trending"); n != 1 {
-		t.Errorf("trending was asked %d times", n)
+	// The hero and the trending row share page 1 (one call); the trending row is left short by the hero and takes page 2.
+	if n := f.count("/api/v1/discover/trending"); n != 2 {
+		t.Errorf("trending was asked %d times, want 2 (page 1, and page 2 for the short row)", n)
 	}
 	// No list is asked for in the member's language: a page has one language.
 	for _, r := range f.reqs {
@@ -130,8 +131,9 @@ func TestHomePage(t *testing.T) {
 func TestTrendingRowPagesAreWhole(t *testing.T) {
 	p, f := newTestPlugin(t)
 	pg := getPage(t, p, "home", "trending", "2", "en")
-	if r := pg.GetRows()[0]; len(r.GetWorks()) != 2 {
-		t.Errorf("page 2 = %v, want both works", r.GetWorks())
+	// movie:603 is in the hero above, so it is not shown again.
+	if r := pg.GetRows()[0]; len(r.GetWorks()) != 1 || r.GetWorks()[0].GetKey() != "tv:1396" {
+		t.Errorf("page 2 = %v, want the series only", r.GetWorks())
 	}
 	if q := f.last(t); !strings.Contains(q.query, "page=2") {
 		t.Errorf("query = %s", q.query)
@@ -774,5 +776,100 @@ func TestCardsPageBeyondTheLimit(t *testing.T) {
 	}
 	if r := cardsPage("x", "X", cards, 9); len(r.GetCards()) != 0 || r.GetNextPageToken() != "" {
 		t.Errorf("past the end: %v", r)
+	}
+}
+
+func trendingOf(ids ...string) string {
+	var rs []string
+	for _, id := range ids {
+		kind, n, _ := strings.Cut(id, ":")
+		name := "title"
+		if kind == "tv" {
+			name = "name"
+		}
+		rs = append(rs, `{"id":`+n+`,"mediaType":"`+kind+`","`+name+`":"T`+n+`","posterPath":"/p.jpg","backdropPath":"/b.jpg"}`)
+	}
+	return `{"page":1,"totalPages":3,"results":[` + strings.Join(rs, ",") + `]}`
+}
+
+func keysOf(r *pluginv1.DiscoverRow) []string {
+	var out []string
+	for _, w := range r.GetWorks() {
+		out = append(out, w.GetKey())
+	}
+	return out
+}
+
+// A work is on a page once, in the first row that has it.
+func TestAWorkIsOnAHomePageOnce(t *testing.T) {
+	p, f := newTestPlugin(t)
+	var ids []string
+	for i := 1; i <= 12; i++ { // twelve fill the hero (10) and leave two for the trending row
+		ids = append(ids, "movie:"+itoa(1000+i)) // these are also on page 1 of the popular movies list
+	}
+	ids = append(ids, "tv:2001") // and one series of the popular series list
+	f.trending = trendingOf(ids...)
+	pg := getPage(t, p, "home", "", "", "en")
+	seen := map[string]string{}
+	for _, r := range pg.GetRows() {
+		for _, k := range keysOf(r) {
+			if prev, dup := seen[k]; dup {
+				t.Errorf("%s is in %s and in %s", k, prev, r.GetId())
+			}
+			seen[k] = r.GetId()
+		}
+	}
+	if hero := rowByID(t, pg, "hero"); len(hero.GetWorks()) != 10 || keysOf(hero)[0] != "movie:1001" {
+		t.Errorf("hero = %v", keysOf(hero))
+	}
+	// 1001 to 1012 are above; popular movies keeps 1013 to 1020 and, being short of ten, takes page 2 (1021 to 1040).
+	pm := rowByID(t, pg, "popular_movies")
+	if got := keysOf(pm); len(got) != 28 || got[0] != "movie:1013" || got[27] != "movie:1040" || pm.GetNextPageToken() != "3" {
+		t.Errorf("popular movies = %v token %q", got, pm.GetNextPageToken())
+	}
+	// Popular series lost one of twenty: still full, no extra page.
+	ps := rowByID(t, pg, "popular_series")
+	if len(ps.GetWorks()) != 19 || ps.GetNextPageToken() != "2" {
+		t.Errorf("popular series = %d works token %q", len(ps.GetWorks()), ps.GetNextPageToken())
+	}
+	if n := f.count("/api/v1/discover/tv"); n != 1 {
+		t.Errorf("popular series asked %d times, want 1", n)
+	}
+}
+
+// Paging a row asked alone leaves out what the rows above it showed.
+func TestPagingKeepsOutTheWorksAbove(t *testing.T) {
+	p, f := newTestPlugin(t)
+	f.trending = trendingOf("movie:1001", "movie:1021", "movie:1022")
+	r := getPage(t, p, "home", "popular_movies", "2", "en").GetRows()[0]
+	for _, k := range keysOf(r) {
+		if k == "movie:1021" || k == "movie:1022" {
+			t.Errorf("%s was shown above and is shown again on page 2", k)
+		}
+	}
+	if len(r.GetWorks()) != 18 || r.GetNextPageToken() != "3" {
+		t.Errorf("page 2 = %d works token %q, want 18 and 3 (20 minus the two above)", len(r.GetWorks()), r.GetNextPageToken())
+	}
+}
+
+// A list that has nothing new left is not shown (no empty row, no token to ask again).
+func TestARowWithNothingNewIsLeftOut(t *testing.T) {
+	p, f := newTestPlugin(t)
+	f.trending = trendingOf("movie:1001")
+	f.list = `{"page":1,"totalPages":1,"results":[{"id":1001,"mediaType":"movie","title":"T1001"}]}`
+	pg := getPage(t, p, "home", "", "", "en")
+	for _, r := range pg.GetRows() {
+		if r.GetId() == "popular_movies" {
+			t.Errorf("popular movies = %v, want it left out", keysOf(r))
+		}
+	}
+}
+
+// A page with one row is not changed: the Movies tab is whole.
+func TestTabsWithOneRowAreNotDeduplicated(t *testing.T) {
+	p, f := newTestPlugin(t)
+	f.list = `{"page":1,"totalPages":1,"results":[{"id":5,"mediaType":"movie","title":"A"},{"id":5,"mediaType":"movie","title":"A again"}]}`
+	if r := getPage(t, p, "movies", "", "", "en").GetRows()[0]; len(r.GetWorks()) != 2 {
+		t.Errorf("works = %v", keysOf(r))
 	}
 }

@@ -175,7 +175,12 @@ func (p *plugin) serve(ctx context.Context, def *pageDef, rowID string, pageNo i
 					out.Header, herr = def.header(ctx)
 				}()
 			}
+			// A work shown by an earlier row of the same page (its first screen) is not shown again here.
+			seen := p.earlierWorks(ctx, def, rowID)
 			row, err := r.fetch(ctx, pageNo)
+			if err == nil {
+				err = p.fillRow(ctx, r, row, pageNo, seen)
+			}
 			wg.Wait()
 			if err != nil {
 				return nil, err
@@ -210,6 +215,18 @@ func (p *plugin) serve(ctx context.Context, def *pageDef, rowID string, pageNo i
 	if herr != nil {
 		return nil, herr
 	}
+	// One work appears once on a page, in the first row that has it.
+	seen := map[string]bool{}
+	for i, r := range rows {
+		if r == nil || errs[i] != nil {
+			continue
+		}
+		if len(def.rows) > 1 {
+			if err := p.fillRow(ctx, def.rows[i], r, 1, seen); err != nil {
+				errs[i] = err
+			}
+		}
+	}
 	var firstErr error
 	for i, r := range rows {
 		switch {
@@ -230,6 +247,92 @@ func (p *plugin) serve(ctx context.Context, def *pageDef, rowID string, pageNo i
 		return nil, firstErr
 	}
 	return out, nil
+}
+
+// ---- one work once per page ----
+
+const (
+	// minRowWorks is how few works a row of posters may be left with after the works shown above it are taken out. Below it the row takes
+	// the next pages of its list, up to maxRefill of them, so that it does not look empty.
+	minRowWorks = 10
+	maxRefill   = 2
+)
+
+// fillRow removes from a row the works already in seen, then marks the row's own works as seen. A row of posters left with fewer than
+// minRowWorks takes more works from the following pages of its list (its token is a page number); its token then moves past them. A hero row
+// is only marked: it is the first row and has nothing above it. Rows of cards are left as they are.
+func (p *plugin) fillRow(ctx context.Context, spec rowSpec, row *pluginv1.DiscoverRow, pageNo int, seen map[string]bool) error {
+	if row == nil || len(row.Cards) > 0 || len(row.Works) == 0 {
+		return nil
+	}
+	hero := row.Style == pluginv1.DiscoverRowStyle_DISCOVER_ROW_STYLE_HERO
+	keep := func(ws []*pluginv1.Work) []*pluginv1.Work {
+		var out []*pluginv1.Work
+		for _, w := range ws {
+			if !seen[w.GetKey()] {
+				seen[w.GetKey()] = true
+				out = append(out, w)
+			}
+		}
+		return out
+	}
+	if hero {
+		keep(row.Works)
+		return nil
+	}
+	row.Works = keep(row.Works)
+	for n := 0; n < maxRefill && len(row.Works) < minRowWorks && row.NextPageToken != "" && ctx.Err() == nil; n++ {
+		next, err := strconv.Atoi(row.NextPageToken)
+		if err != nil || next <= pageNo {
+			break
+		}
+		more, err := spec.fetch(ctx, next)
+		if err != nil {
+			slog.Debug("discover row refill failed", "row", spec.id, "error", err.Error())
+			break
+		}
+		row.Works = append(row.Works, keep(more.Works)...)
+		row.NextPageToken, pageNo = more.NextPageToken, next
+	}
+	if len(row.Works) == 0 {
+		row.NextPageToken = "" // nothing new is left in this list; an empty row with a token would only be asked for again
+	}
+	if len(row.Works) > pluginapi.MaxWorksPerPage {
+		row.Works = row.Works[:pluginapi.MaxWorksPerPage]
+	}
+	return nil
+}
+
+// earlierWorks is the works of the first screen of the rows above rowID on the same page. Their first pages come from the list cache.
+func (p *plugin) earlierWorks(ctx context.Context, def *pageDef, rowID string) map[string]bool {
+	seen := map[string]bool{}
+	var above []rowSpec
+	for _, r := range def.rows {
+		if r.id == rowID {
+			break
+		}
+		above = append(above, r)
+	}
+	if len(above) == 0 || len(above) == len(def.rows) {
+		return seen
+	}
+	rows := make([]*pluginv1.DiscoverRow, len(above))
+	var wg sync.WaitGroup
+	for i, r := range above {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rows[i], _ = r.fetch(ctx, 1)
+		}()
+	}
+	wg.Wait()
+	for i, row := range rows {
+		if row != nil && len(row.Cards) == 0 {
+			// The same removal as on the page itself, so that what is taken out here is what the viewer saw above.
+			_ = p.fillRow(ctx, above[i], row, 1, seen)
+		}
+	}
+	return seen
 }
 
 // ---- rows ----
