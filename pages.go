@@ -244,7 +244,7 @@ func (pc *pageCtx) listRow(id, title, path string, q url.Values, media string, s
 		if err != nil {
 			return nil, err
 		}
-		return &pluginv1.DiscoverRow{Id: id, Title: title, Style: style, Works: works(pg.Results, media), NextPageToken: nextToken(pg), MoreRef: more}, nil
+		return &pluginv1.DiscoverRow{Id: id, Title: title, Style: style, Works: works(pg.Results, media, pc.t), NextPageToken: nextToken(pg), MoreRef: more}, nil
 	}}
 }
 
@@ -302,7 +302,7 @@ func (pc *pageCtx) home(ctx context.Context) *pageDef {
 					rs = append(rs, r)
 				}
 			}
-			return &pluginv1.DiscoverRow{Id: "hero", Style: pluginv1.DiscoverRowStyle_DISCOVER_ROW_STYLE_HERO, Works: works(rs, "")}, nil
+			return &pluginv1.DiscoverRow{Id: "hero", Style: pluginv1.DiscoverRowStyle_DISCOVER_ROW_STYLE_HERO, Works: works(rs, "", pc.t)}, nil
 		}},
 		rowSpec{id: "trending", fetch: func(ctx context.Context, pageNo int) (*pluginv1.DiscoverRow, error) {
 			var pg page
@@ -327,7 +327,7 @@ func (pc *pageCtx) home(ctx context.Context) *pageDef {
 					rs = append(rs, r)
 				}
 			}
-			return &pluginv1.DiscoverRow{Id: "trending", Title: pc.t.T("rowTrending"), Works: works(rs, ""), NextPageToken: nextToken(pg)}, nil
+			return &pluginv1.DiscoverRow{Id: "trending", Title: pc.t.T("rowTrending"), Works: works(rs, "", pc.t), NextPageToken: nextToken(pg)}, nil
 		}},
 	)
 	nosel := &pageCtx{p: pc.p, tg: pc.tg, t: pc.t, tag: pc.tag}

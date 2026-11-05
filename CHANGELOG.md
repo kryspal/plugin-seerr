@@ -2,6 +2,10 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.5.4
+
+- Titles that are not out yet are marked "Not out yet" in the lists (release date later than today, UTC; a missing or unreadable date is not guessed) and on the details page, which also knows Seerr's production status (Planned, In Production, Post Production) and shows the date. On a person's page the mark follows the role ("Role · Not out yet"). The request button is unchanged.
+
 ## 0.5.3
 
 - A member whose Seerr account was deleted no longer takes the whole source offline. Seerr answers 403 to a call made for a user it no longer has; the plugin took that for a refused API key. Now a 403 on a call made for a member drops what is remembered about that member and looks the account up again: none means an empty "my requests" and a refused request with the link to Seerr, and other members and the source are not affected. A refused API key is still reported as one, judged by the lookup made without `X-API-User`.

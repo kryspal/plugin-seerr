@@ -74,7 +74,7 @@ func (p *plugin) SearchWorks(ctx context.Context, req *pluginv1.SearchWorksReque
 	if err != nil {
 		return nil, err
 	}
-	return &pluginv1.SearchWorksResponse{Works: works(pg.Results, kindOf(req.GetType())), NextPageToken: nextToken(pg)}, nil
+	return &pluginv1.SearchWorksResponse{Works: works(pg.Results, kindOf(req.GetType()), messages.For(req.GetLanguages().GetLanguage())), NextPageToken: nextToken(pg)}, nil
 }
 
 // GetWork returns one title in full: the details, the external IDs and, for a series, its seasons.
@@ -123,6 +123,7 @@ func (p *plugin) GetWork(ctx context.Context, req *pluginv1.GetWorkRequest) (*pl
 
 // details fills what only the detail page shows: the tagline, genres, companies, credits, the related page and the trailers.
 func details(w *pluginv1.Work, r result, kind string, t i18n.Translator) {
+	w.Caption = detailCaption(r, kind, t)
 	w.Tagline = truncate(strings.TrimSpace(r.Tagline), pluginapi.MaxWorkTagline)
 	for _, g := range r.Genres {
 		if name := strings.TrimSpace(g.Name); g.ID > 0 && name != "" && len(w.Genres) < pluginapi.MaxWorkGenres {
@@ -271,7 +272,7 @@ func truncate(s string, n int) string {
 
 // works converts the movies and series of a list; people and entries without a usable title are dropped. only limits the list to one kind
 // (empty keeps both).
-func works(rs []result, only string) []*pluginv1.Work {
+func works(rs []result, only string, t i18n.Translator) []*pluginv1.Work {
 	out := make([]*pluginv1.Work, 0, len(rs))
 	for _, r := range rs {
 		kind := r.MediaType
@@ -282,6 +283,7 @@ func works(rs []result, only string) []*pluginv1.Work {
 			continue
 		}
 		if w := toWork(r, kind); w != nil {
+			w.Caption = releaseCaption(r, kind, t)
 			out = append(out, w)
 		}
 		if len(out) >= pluginapi.MaxWorksPerPage {
@@ -344,4 +346,47 @@ func awaitLookups(ctx context.Context, waits []<-chan struct{}, budget time.Dura
 			return
 		}
 	}
+}
+
+// today is the date "not out yet" is judged against, in UTC; tests replace it.
+var today = func() string { return time.Now().UTC().Format("2006-01-02") }
+
+// releaseDate is the date of a movie's release or a series' first episode, as Seerr writes it.
+func releaseDate(r result, kind string) string {
+	if kind == kindTV {
+		return r.FirstAirDate
+	}
+	return r.ReleaseDate
+}
+
+// notOut reports whether the date is a real date later than today. An empty or unreadable date is not judged.
+func notOut(date string) bool {
+	if _, err := time.Parse("2006-01-02", date); err != nil {
+		return false
+	}
+	return date > today()
+}
+
+// releaseCaption is the short text of a list entry that is not out yet; empty for a title that is out or has no date (a date is not guessed).
+func releaseCaption(r result, kind string, t i18n.Translator) string {
+	if notOut(releaseDate(r, kind)) {
+		return t.T("unreleased")
+	}
+	return ""
+}
+
+// detailCaption is the same for a details page, which also knows the production status: a title with no date that Seerr says is planned or
+// in production is not out either. A known date is shown.
+func detailCaption(r result, kind string, t i18n.Translator) string {
+	date := releaseDate(r, kind)
+	if notOut(date) {
+		return truncate(t.T("unreleased")+" · "+t.Tf("releasesOn", date), pluginapi.MaxWorkCaption)
+	}
+	if _, err := time.Parse("2006-01-02", date); err != nil {
+		switch strings.ToLower(strings.TrimSpace(r.Status)) {
+		case "planned", "rumored", "in production", "post production":
+			return t.T("unreleased")
+		}
+	}
+	return ""
 }

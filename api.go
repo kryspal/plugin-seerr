@@ -202,6 +202,7 @@ type result struct {
 	GenreIDs  []int  `json:"genreIds"`
 
 	// Details only (/movie/{id}, /tv/{id}).
+	Status              string   `json:"status"`
 	Tagline             string   `json:"tagline"`
 	Genres              []named  `json:"genres"`
 	Networks            []named  `json:"networks"`
