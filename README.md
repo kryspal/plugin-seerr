@@ -10,6 +10,8 @@ go vet ./... && go test ./...
 ## What it does
 
 - **Discover** (`discover.source`): rows for trending titles, popular movies and popular series; search; and a details page with the seasons of a series. All data comes from Seerr's own API. Kryspal Media does not call any other metadata service for this and stores no key for one.
+- **Filters**: for movies and for series the popular list can be filtered by genre and by period (decades, and before 1980) and sorted by popularity, newest or top rated. "Newest" never lists titles that are not out yet; "top rated" ignores titles with few votes. Genre names follow the member's language, with Traditional Chinese converted from the Simplified names Seerr gives. Trending cannot be filtered.
+- **My requests** (`ListMemberWorks`): the member's own requests, last changed first, with Seerr's state and, when Seerr is connected to a download manager and reports it, the download progress. Without one there is only the state.
 - **Request** (`work.action`): a button on titles that have a TMDB number. For a series the member chooses the seasons; seasons that are already available or requested are shown but cannot be chosen, and the seasons nobody has asked for stay open, so a series can be requested in steps. Specials (season 0) are not offered: Seerr does not create a request for them alone.
 - **State**: each title shows what Seerr says: awaiting approval, processing, partly available, available, declined or failed. A title that is in your library always shows as in the library, whatever Seerr says.
 - **Test connection** (`plugin.checks`): a button on the settings page that checks the address and the API key.

@@ -20,6 +20,8 @@ type fakeSeerr struct {
 	users      string
 	postStatus int
 	postBody   string
+	// requests answers GET /request.
+	requests string
 	// lookupDelay slows the details asked in a language, as a cold Seerr is.
 	lookupDelay time.Duration
 }
@@ -52,6 +54,14 @@ func (f *fakeSeerr) handler(t *testing.T) http.Handler {
 			_, _ = w.Write([]byte(`{"id":1}`))
 		case path == "/user":
 			_, _ = w.Write([]byte(f.users))
+		case path == "/genres/movie", path == "/genres/tv":
+			_, _ = w.Write([]byte(`[{"id":28,"name":"动作"},{"id":878,"name":"科幻"},{"id":35,"name":"Comedy"}]`))
+		case path == "/request" && r.Method == http.MethodGet:
+			if f.requests == "" {
+				_, _ = w.Write([]byte(`{"pageInfo":{"pages":0,"pageSize":20,"results":0,"page":1},"results":[]}`))
+				return
+			}
+			_, _ = w.Write([]byte(f.requests))
 		case path == "/request" && r.Method == http.MethodPost:
 			w.WriteHeader(f.postStatus)
 			_, _ = w.Write([]byte(f.postBody))

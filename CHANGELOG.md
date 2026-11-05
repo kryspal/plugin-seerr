@@ -2,6 +2,11 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.2.0
+
+- Follows the revised discover protocol: `DescribeDiscoverSource` (movies and series, genre and period filters, sort), `selections` and `filter_keys` on the popular rows, and `ListMemberWorks` ("my requests", with download progress when Seerr reports it). Option types are renamed (`WorkOption`, `WorkChoice`, `WorkSelection`).
+- Genre names for Traditional Chinese are converted from the Simplified names Seerr returns.
+
 ## 0.1.4
 
 - The title lookups behind the popular rows are cached per title and language (one day), limited to eight at a time, shared between simultaneous calls, and a call waits at most three seconds for them. A list is back in 4.2 seconds with nothing cached (measured on Seerr v3.5.1) and in 0.03 seconds once cached; titles not looked up in time are filled in in the background.

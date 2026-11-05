@@ -49,10 +49,11 @@ type plugin struct {
 	users  *userCache
 	locale *localeCache
 	titles *titleCache
+	genres *genreCache
 }
 
 func newPlugin() *plugin {
-	return &plugin{api: newAPI(), cache: newDetailCache(), users: newUserCache(), locale: &localeCache{now: time.Now}, titles: newTitleCache()}
+	return &plugin{api: newAPI(), cache: newDetailCache(), users: newUserCache(), locale: &localeCache{now: time.Now}, titles: newTitleCache(), genres: newGenreCache()}
 }
 
 // Describe declares the two discover capabilities and the connection check. The settings are the address of the Seerr server and its API key.
@@ -105,6 +106,7 @@ func (p *plugin) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	p.users.clear()
 	p.locale.clear()
 	p.titles.clear()
+	p.genres.clear()
 	return resp, nil
 }
 

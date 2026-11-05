@@ -160,19 +160,19 @@ func (a assessment) state(ref string, t i18n.Translator, offers bool) *pluginv1.
 		offer.Label = t.T(a.label)
 	}
 	if len(a.seasons) > 0 {
-		opt := &pluginv1.WorkActionOption{Key: "seasons", Label: t.T("optSeasons"), Multiple: true, Required: true}
+		opt := &pluginv1.WorkOption{Key: "seasons", Label: t.T("optSeasons"), Multiple: true, Required: true}
 		for i, s := range a.seasons {
 			if i >= pluginapi.MaxWorkChoices {
 				break
 			}
-			c := &pluginv1.WorkActionChoice{Value: strconv.Itoa(s.number), Label: genericSeason(t, s.number), Disabled: s.disabled,
+			c := &pluginv1.WorkChoice{Value: strconv.Itoa(s.number), Label: genericSeason(t, s.number), Disabled: s.disabled,
 				Selected: !s.disabled}
 			if s.noteKey != "" {
 				c.Note = t.T(s.noteKey)
 			}
 			opt.Choices = append(opt.Choices, c)
 		}
-		offer.Options = []*pluginv1.WorkActionOption{opt}
+		offer.Options = []*pluginv1.WorkOption{opt}
 	}
 	st.Actions = []*pluginv1.WorkActionOffer{offer}
 	return st
@@ -396,7 +396,7 @@ func (p *plugin) RunWorkAction(ctx context.Context, req *pluginv1.RunWorkActionR
 }
 
 // chosenSeasons reads the answer to the seasons question and keeps it to seasons that could be requested. ok is false when nothing valid is left.
-func chosenSeasons(sel []*pluginv1.WorkActionSelection, a assessment) ([]int, bool) {
+func chosenSeasons(sel []*pluginv1.WorkSelection, a assessment) ([]int, bool) {
 	allowed := map[int]bool{}
 	for _, s := range a.seasons {
 		if !s.disabled {

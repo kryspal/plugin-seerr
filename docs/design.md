@@ -32,6 +32,16 @@ For a series, a season is blocked when Seerr lists it as pending, processing, pa
 
 Seerr v3.5.1: `/discover/movies` and `/discover/tv` use the query's `language` as `with_original_language` (a tag with a region such as `zh-CN` matches nothing, `zh` returns Chinese-language titles only) and title the list in the locale of the Seerr user (`X-API-User`, else the server default). `/discover/trending`, `/search` and `/movie|tv/{id}` use `language` as the display language. So the popular rows send no language and, when Seerr's default locale (`GET /settings/main`, cached five minutes) is not the member's language, look each title up with `/movie|tv/{id}?language=` (Seerr caches TMDB answers). The lookups are kept per title and language for a day, run at most eight at a time, one per title and language even when several calls ask at once, and have their own 30-second deadline. A call waits at most three seconds for them: titles not found by then keep Seerr's text for this call and are filled in by the lookups that go on in the background, so the next call has them. Measured against Seerr v3.5.1 on the same host (all three rows, 60 titles, zh-TW): 4.2 s with nothing cached, 3.2 s while the first lookups are still running, 0.03 s once cached; one row page 2.1 to 3.3 s; no call took longer than 4.2 s.
 
+## Filters and sort
+
+`DescribeDiscoverSource` declares, for movies and for series: a single-choice `genre` filter (Seerr's `/genres/movie|tv`, kept ten minutes, the last list kept when Seerr is down, the filter left out when there never was one), a single-choice `period` filter (2020s ... 1980s, before 1980) and a `sort` (popular, newest, top rated). The popular rows list all three in `filter_keys`; trending lists none.
+
+Selections become `/discover/movies|tv` parameters: `genre` (a number, checked again), `primaryReleaseDateGte/Lte` (movies) or `firstAirDateGte/Lte` (series), `sortBy` (`primary_release_date.desc` / `first_air_date.desc` for newest, `vote_average.desc` for top rated) and `voteCountGte` (500 movies, 200 series) for top rated. Newest always gets an upper date of today (or the period's end if that is earlier), since Seerr otherwise sorts titles not yet released first. Unknown keys and values are ignored; the sort values are a whitelist here too. The page token is Seerr's page number and is sent with the same selections.
+
+## My requests
+
+`ListMemberWorks` asks `GET /request?sort=modified&sortDirection=desc&take=20&skip=N` with `X-API-User` set to the member's Seerr user. On v3.5.1 Seerr then returns only that user's requests; the plugin never sends `requestedBy` and the page token holds only the offset. A member with no Seerr account gets an empty list. Seerr's answer has no titles, so they come from the same cached, bounded lookups as the popular rows (waiting at most six seconds; a request whose title is not ready is listed as "Untitled" and has its title on the next load). The state is the same mapping as for badges. Progress is the sum over `media.downloadStatus` of done over total, shown only for requests in processing and only when Seerr lists a download (source reading of v3.5.1; not tried against Radarr or Sonarr).
+
 ## Not done
 
 - No 4K requests, no server or quality profile choice, no cancelling or approving requests: those stay in Seerr.

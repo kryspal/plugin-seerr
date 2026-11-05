@@ -225,15 +225,15 @@ func TestRunMovie(t *testing.T) {
 func TestRunSeries(t *testing.T) {
 	p, f := newTestPlugin(t)
 	f.details["tv:1396"] = tvWith(`{"status":4,"seasons":[{"seasonNumber":1,"status":5}]}`)
-	run := func(sel ...*pluginv1.WorkActionSelection) *pluginv1.RunWorkActionResponse {
+	run := func(sel ...*pluginv1.WorkSelection) *pluginv1.RunWorkActionResponse {
 		resp, err := p.RunWorkAction(ctx, &pluginv1.RunWorkActionRequest{Action: "request", Work: tvRef(""), Member: mia, Languages: langs("en"), Selections: sel})
 		if err != nil {
 			t.Fatal(err)
 		}
 		return resp
 	}
-	pick := func(v ...string) *pluginv1.WorkActionSelection {
-		return &pluginv1.WorkActionSelection{Key: "seasons", Values: v}
+	pick := func(v ...string) *pluginv1.WorkSelection {
+		return &pluginv1.WorkSelection{Key: "seasons", Values: v}
 	}
 	for name, resp := range map[string]*pluginv1.RunWorkActionResponse{
 		"no answer":               run(),
@@ -243,7 +243,7 @@ func TestRunSeries(t *testing.T) {
 		"not a number":            run(pick("x")),
 		"one bad among good ones": run(pick("2", "1")),
 		"the same season twice":   run(pick("2", "2")),
-		"another question's key":  run(&pluginv1.WorkActionSelection{Key: "other", Values: []string{"2"}}),
+		"another question's key":  run(&pluginv1.WorkSelection{Key: "other", Values: []string{"2"}}),
 	} {
 		if !resp.GetRefused() || resp.GetMessage() == "" {
 			t.Errorf("%s: want a refusal with a message, got %v", name, resp)
@@ -359,7 +359,7 @@ func TestSpecialsAreNotOffered(t *testing.T) {
 	p, f := newTestPlugin(t)
 	f.details["tv:1396"] = tvWith("")
 	resp, err := p.RunWorkAction(ctx, &pluginv1.RunWorkActionRequest{Action: "request", Work: tvRef(""), Member: mia,
-		Selections: []*pluginv1.WorkActionSelection{{Key: "seasons", Values: []string{"0"}}}})
+		Selections: []*pluginv1.WorkSelection{{Key: "seasons", Values: []string{"0"}}}})
 	if err != nil || !resp.GetRefused() || len(f.posts()) != 0 {
 		t.Errorf("specials only: %v %v posts %v", resp, err, f.posts())
 	}

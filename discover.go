@@ -65,12 +65,14 @@ type rowDef struct {
 	// userLocale: Seerr uses the query's language here as an original-language filter and titles in the Seerr user's own locale (v3.5.1,
 	// /discover/movies and /discover/tv), so the language is not sent and the titles are localized afterwards.
 	userLocale bool
+	// filterable: the row honors the genre, period and sort choices (its filter_keys).
+	filterable bool
 }
 
 var rowDefs = []rowDef{
 	{id: "trending", titleKey: "rowTrending", path: "/discover/trending", trending: true},
-	{id: "popular_movies", titleKey: "rowPopularMovies", path: "/discover/movies", kind: kindMovie, userLocale: true},
-	{id: "popular_series", titleKey: "rowPopularSeries", path: "/discover/tv", kind: kindTV, userLocale: true},
+	{id: "popular_movies", titleKey: "rowPopularMovies", path: "/discover/movies", kind: kindMovie, userLocale: true, filterable: true},
+	{id: "popular_series", titleKey: "rowPopularSeries", path: "/discover/tv", kind: kindTV, userLocale: true, filterable: true},
 }
 
 func (p *plugin) rowsFor(kind string) []rowDef {
@@ -88,6 +90,14 @@ func first(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// filterKeys are the filter and sort keys the row honors; none for a row that cannot be filtered.
+func (d rowDef) filterKeys() []string {
+	if !d.filterable {
+		return nil
+	}
+	return []string{keyGenre, keyPeriod, keySort}
 }
 
 func language(l *pluginv1.Languages) string { return tmdbLanguage(l.GetLanguage()) }
@@ -129,6 +139,13 @@ func (p *plugin) ListDiscoverRows(ctx context.Context, req *pluginv1.ListDiscove
 			if !d.userLocale {
 				q.Set("language", lang)
 			}
+			title := t.T(d.titleKey)
+			if d.filterable && req.GetRowId() != "" {
+				sortValue := applyFilters(q, d.kind, selected(req.GetSelections()), time.Now().UTC().Format("2006-01-02"))
+				if sortValue != defaultSort {
+					title = t.T(map[string]string{"newest": "rowNewest", "top_rated": "rowTop"}[sortValue] + map[string]string{kindMovie: "Movies", kindTV: "Series"}[d.kind])
+				}
+			}
 			if d.trending {
 				q.Set("mediaType", map[string]string{"": "all", kindMovie: kindMovie, kindTV: kindTV}[kind])
 			}
@@ -140,7 +157,11 @@ func (p *plugin) ListDiscoverRows(ctx context.Context, req *pluginv1.ListDiscove
 			if d.userLocale {
 				pg.Results = p.localize(ctx, tg, pg.Results, lang)
 			}
-			rows[i] = &pluginv1.DiscoverRow{Id: d.id, Title: t.T(d.titleKey), Works: works(pg.Results, first(d.kind, kind)), NextPageToken: nextToken(pg)}
+			keys := d.filterKeys()
+			if d.filterable && len(p.genres.list(ctx, p, tg, d.kind, req.GetLanguages().GetLanguage())) == 0 {
+				keys = []string{keyPeriod, keySort} // no genre list from Seerr: the filter is not declared either
+			}
+			rows[i] = &pluginv1.DiscoverRow{Id: d.id, Title: title, FilterKeys: keys, Works: works(pg.Results, first(d.kind, kind)), NextPageToken: nextToken(pg)}
 		}()
 	}
 	wg.Wait()
@@ -363,18 +384,7 @@ func (p *plugin) localize(ctx context.Context, tg target, rs []result, lang stri
 			}
 		}
 	}
-	timer := time.NewTimer(p.titles.budget)
-	defer timer.Stop()
-wait:
-	for _, done := range waits {
-		select {
-		case <-done:
-		case <-timer.C:
-			break wait
-		case <-ctx.Done():
-			break wait
-		}
-	}
+	awaitLookups(ctx, waits, p.titles.budget)
 	out := make([]result, len(rs))
 	copy(out, rs)
 	for i := range out {
@@ -415,4 +425,19 @@ func sameLanguage(a, b string) bool {
 	}
 	base := func(s string) string { return strings.ToLower(strings.SplitN(s, "-", 2)[0]) }
 	return base(a) == "en" && base(b) == "en"
+}
+
+// awaitLookups waits for the lookups to end, at most budget, or until ctx ends.
+func awaitLookups(ctx context.Context, waits []<-chan struct{}, budget time.Duration) {
+	timer := time.NewTimer(budget)
+	defer timer.Stop()
+	for _, done := range waits {
+		select {
+		case <-done:
+		case <-timer.C:
+			return
+		case <-ctx.Done():
+			return
+		}
+	}
 }

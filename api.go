@@ -84,12 +84,17 @@ func (a *api) target() (target, error) {
 // get decodes a 200 answer into out. 401 and 403 mean Seerr refused the plugin's API key (not a member's credential), so they are
 // FAILED_PRECONDITION; 404 is NOT_FOUND; a 429 pauses the plugin.
 func (a *api) get(ctx context.Context, t target, path string, q url.Values, out any) error {
+	return a.getAs(ctx, t, 0, path, q, out)
+}
+
+// getAs is get made for a Seerr user (X-API-User): Seerr then answers with what that user may see.
+func (a *api) getAs(ctx context.Context, t target, userID int, path string, q url.Values, out any) error {
 	// Seerr wants a space as %20; url.Values.Encode writes +, which Seerr's /search answers with 400.
 	u := t.base + apiPath + path
 	if len(q) > 0 {
 		u += "?" + strings.ReplaceAll(q.Encode(), "+", "%20")
 	}
-	resp, err := a.c.Do(ctx, httpclient.Request{URL: u, Header: header(t, 0)})
+	resp, err := a.c.Do(ctx, httpclient.Request{URL: u, Header: header(t, userID)})
 	if err != nil {
 		return err
 	}
@@ -180,15 +185,23 @@ type result struct {
 
 // mediaInfo is what Seerr knows about a title's availability.
 type mediaInfo struct {
+	TMDBID         int `json:"tmdbId"`
+	DownloadStatus []struct {
+		Size     float64 `json:"size"`
+		SizeLeft float64 `json:"sizeLeft"`
+	} `json:"downloadStatus"`
 	Status   int            `json:"status"`
 	Requests []request      `json:"requests"`
 	Seasons  []seasonStatus `json:"seasons"`
 }
 
 type request struct {
-	ID          int  `json:"id"`
-	Status      int  `json:"status"`
-	Is4K        bool `json:"is4k"`
+	ID          int        `json:"id"`
+	Type        string     `json:"type"`
+	UpdatedAt   string     `json:"updatedAt"`
+	Media       *mediaInfo `json:"media"`
+	Status      int        `json:"status"`
+	Is4K        bool       `json:"is4k"`
 	RequestedBy struct {
 		ID int `json:"id"`
 	} `json:"requestedBy"`
