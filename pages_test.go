@@ -510,3 +510,16 @@ func TestCreditsAreCapped(t *testing.T) {
 		t.Errorf("%d credits, first %q %q", len(got), got[0].GetName(), got[1].GetName())
 	}
 }
+
+func TestARowAskedAloneCarriesTheHeader(t *testing.T) {
+	p, _ := newTestPlugin(t)
+	for ref, row := range map[string]string{"person:6384": "credits", "studio:79": "works", "network:174": "works", "genre:movie:28": "works"} {
+		pg := getPage(t, p, ref, row, "", "en")
+		if pg.GetHeader().GetTitle() == "" || len(pg.GetRows()) != 1 {
+			t.Errorf("%s/%s: header %q, %d rows", ref, row, pg.GetHeader().GetTitle(), len(pg.GetRows()))
+		}
+		if pg.GetHeader().GetBackdropUrl() != "" {
+			t.Errorf("%s: header has a backdrop", ref)
+		}
+	}
+}

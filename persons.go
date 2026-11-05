@@ -75,12 +75,9 @@ func (c *creditCache) clear() {
 	c.mu.Unlock()
 }
 
-// personPage builds the page of a person. withHeader is false when only a row is asked for.
-func (pc *pageCtx) personPage(id int, withHeader bool) *pageDef {
-	def := &pageDef{}
-	if withHeader {
-		def.header = func(ctx context.Context) (*pluginv1.DiscoverPageHeader, error) { return pc.personHeader(ctx, id) }
-	}
+// personPage builds the page of a person.
+func (pc *pageCtx) personPage(id int) *pageDef {
+	def := &pageDef{header: func(ctx context.Context) (*pluginv1.DiscoverPageHeader, error) { return pc.personHeader(ctx, id) }}
 	def.rows = []rowSpec{{id: "credits", fetch: func(ctx context.Context, pageNo int) (*pluginv1.DiscoverRow, error) {
 		list, err := pc.p.credits(ctx, pc.tg, id)
 		if err != nil {

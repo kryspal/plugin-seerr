@@ -146,7 +146,7 @@ func (p *plugin) GetDiscoverPage(ctx context.Context, req *pluginv1.GetDiscoverP
 	case refNetwork:
 		def = pc.companyPage(refNetwork, ref.id)
 	case refPerson:
-		def = pc.personPage(ref.id, req.GetRowId() == "")
+		def = pc.personPage(ref.id)
 	case refRec:
 		def = pc.recommendations(ref.media, ref.id)
 	}
@@ -164,9 +164,23 @@ func (p *plugin) serve(ctx context.Context, def *pageDef, rowID string, pageNo i
 			if r.id != rowID {
 				continue
 			}
+			// The header comes with a row asked alone, so the page can say where the row is ("Person > Works"). It is fetched with the row.
+			var herr error
+			var wg sync.WaitGroup
+			if def.header != nil {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					out.Header, herr = def.header(ctx)
+				}()
+			}
 			row, err := r.fetch(ctx, pageNo)
+			wg.Wait()
 			if err != nil {
 				return nil, err
+			}
+			if herr != nil {
+				return nil, herr
 			}
 			out.Rows = []*pluginv1.DiscoverRow{row}
 			return out, nil
