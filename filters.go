@@ -16,6 +16,8 @@ import (
 const (
 	keyGenre  = "genre"
 	keyPeriod = "period"
+	keyLang   = "language"
+	keyRating = "rating"
 	keySort   = "sort"
 )
 
@@ -35,6 +37,23 @@ var periods = []period{
 	{value: "older", to: "1979-12-31"},
 }
 
+// An original language: the value the member picks, the code Seerr's discover endpoints take (with_original_language), and the message key
+// of its name. Chinese is zh and cn (TMDB files Cantonese-language titles under cn); "|" means or, and Seerr passes it on (tested on v3.5.1).
+type origLang struct {
+	value, code, label string
+}
+
+var origLangs = []origLang{
+	{"zh", "zh|cn", "langZh"}, {"ja", "ja", "langJa"}, {"ko", "ko", "langKo"}, {"en", "en", "langEn"},
+	{"fr", "fr", "langFr"}, {"de", "de", "langDe"}, {"es", "es", "langEs"},
+}
+
+// Minimum average votes the member can ask for. A title with a high average and a handful of votes is not good evidence, so the vote count has
+// a floor of its own.
+var ratings = []string{"6", "7", "8"}
+
+var ratingMinVotes = map[string]int{kindMovie: 200, kindTV: 100}
+
 // A sort is a value of the sort control: Seerr's sortBy, and a vote floor so a handful of votes cannot top a list.
 type sortDef struct {
 	value    string
@@ -49,6 +68,9 @@ var sorts = []sortDef{
 	{value: "popular", label: "sortPopular"},
 	{value: "newest", movieBy: "primary_release_date.desc", seriesBy: "first_air_date.desc", today: true, label: "sortNewest"},
 	{value: "top_rated", movieBy: "vote_average.desc", seriesBy: "vote_average.desc", minVotes: map[string]int{kindMovie: 500, kindTV: 200}, label: "sortTop"},
+	// Seerr sorts by the original title (original_title, original_name), not by the translated one. Titles with almost no votes are mostly
+	// placeholders ("!"), so a small floor keeps them out.
+	{value: "title", movieBy: "original_title.asc", seriesBy: "original_name.asc", minVotes: map[string]int{kindMovie: 20, kindTV: 10}, label: "sortTitle"},
 }
 
 const defaultSort = "popular"
@@ -83,9 +105,35 @@ func selected(sel []*pluginv1.WorkSelection) map[string][]string {
 // applyFilters adds the member's choices to a /discover/movies or /discover/tv query. Values are checked again here: a genre must be a
 // number, a period and a sort must be known; anything else is ignored. today is the date "newest" stops at.
 func applyFilters(q url.Values, kind string, sel map[string][]string, today string) (sortValue string) {
-	if v := sel[keyGenre]; len(v) == 1 {
-		if n, err := strconv.Atoi(v[0]); err == nil && n > 0 {
-			q.Set("genre", v[0])
+	// Several genres mean "any of them": Seerr passes "|" to TMDB as or (a comma would be and).
+	var genres []string
+	seen := map[int]bool{}
+	for _, g := range sel[keyGenre] {
+		if n, err := strconv.Atoi(g); err == nil && n > 0 && !seen[n] {
+			seen[n] = true
+			genres = append(genres, strconv.Itoa(n))
+		}
+	}
+	if len(genres) > 0 {
+		q.Set("genre", strings.Join(genres, "|"))
+	}
+	// Seerr reads "language" here as the original language. Without a choice say "all", so a default original language set in Seerr does not
+	// narrow the list.
+	q.Set("language", "all")
+	if v := sel[keyLang]; len(v) == 1 {
+		for _, l := range origLangs {
+			if l.value == v[0] {
+				q.Set("language", l.code)
+			}
+		}
+	}
+	minVotes := 0
+	if v := sel[keyRating]; len(v) == 1 {
+		for _, r := range ratings {
+			if r == v[0] {
+				q.Set("voteAverageGte", r)
+				minVotes = ratingMinVotes[kind]
+			}
 		}
 	}
 	gteKey, lteKey := "primaryReleaseDateGte", "primaryReleaseDateLte"
@@ -118,8 +166,11 @@ func applyFilters(q url.Values, kind string, sel map[string][]string, today stri
 	if by != "" {
 		q.Set("sortBy", by)
 	}
-	if n := s.minVotes[kind]; n > 0 {
-		q.Set("voteCountGte", strconv.Itoa(n))
+	if n := s.minVotes[kind]; n > minVotes {
+		minVotes = n
+	}
+	if minVotes > 0 {
+		q.Set("voteCountGte", strconv.Itoa(minVotes))
 	}
 	return s.value
 }
@@ -150,7 +201,7 @@ func (p *plugin) DescribeDiscoverSource(ctx context.Context, req *pluginv1.Descr
 	for i, kind := range kinds {
 		k := &pluginv1.DiscoverKind{Type: itemType(kind)}
 		if len(genres[i]) > 0 {
-			opt := &pluginv1.WorkOption{Key: keyGenre, Label: t.T("filterGenre")}
+			opt := &pluginv1.WorkOption{Key: keyGenre, Label: t.T("filterGenre"), Multiple: true}
 			for _, g := range genres[i] {
 				opt.Choices = append(opt.Choices, &pluginv1.WorkChoice{Value: strconv.Itoa(g.ID), Label: truncate(g.Name, 64)})
 			}
@@ -165,6 +216,16 @@ func (p *plugin) DescribeDiscoverSource(ctx context.Context, req *pluginv1.Descr
 			per.Choices = append(per.Choices, &pluginv1.WorkChoice{Value: pd.value, Label: label})
 		}
 		k.Filters = append(k.Filters, per)
+		lang := &pluginv1.WorkOption{Key: keyLang, Label: t.T("filterLanguage")}
+		for _, l := range origLangs {
+			lang.Choices = append(lang.Choices, &pluginv1.WorkChoice{Value: l.value, Label: t.T(l.label)})
+		}
+		k.Filters = append(k.Filters, lang)
+		rate := &pluginv1.WorkOption{Key: keyRating, Label: t.T("filterRating")}
+		for _, r := range ratings {
+			rate.Choices = append(rate.Choices, &pluginv1.WorkChoice{Value: r, Label: t.Tf("ratingAtLeast", r)})
+		}
+		k.Filters = append(k.Filters, rate)
 		srt := &pluginv1.WorkOption{Key: keySort, Label: t.T("filterSort")}
 		for _, s := range sorts {
 			srt.Choices = append(srt.Choices, &pluginv1.WorkChoice{Value: s.value, Label: t.T(s.label), Selected: s.value == defaultSort})

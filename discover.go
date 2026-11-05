@@ -97,7 +97,7 @@ func (d rowDef) filterKeys() []string {
 	if !d.filterable {
 		return nil
 	}
-	return []string{keyGenre, keyPeriod, keySort}
+	return []string{keyGenre, keyPeriod, keyLang, keyRating, keySort}
 }
 
 func language(l *pluginv1.Languages) string { return tmdbLanguage(l.GetLanguage()) }
@@ -140,17 +140,17 @@ func (p *plugin) ListDiscoverRows(ctx context.Context, req *pluginv1.ListDiscove
 				q.Set("language", lang)
 			}
 			title := t.T(d.titleKey)
-			if d.filterable && req.GetRowId() != "" {
+			if d.filterable {
 				sortValue := applyFilters(q, d.kind, selected(req.GetSelections()), time.Now().UTC().Format("2006-01-02"))
 				if sortValue != defaultSort {
-					title = t.T(map[string]string{"newest": "rowNewest", "top_rated": "rowTop"}[sortValue] + map[string]string{kindMovie: "Movies", kindTV: "Series"}[d.kind])
+					title = t.T(map[string]string{"newest": "rowNewest", "top_rated": "rowTop", "title": "rowAz"}[sortValue] + map[string]string{kindMovie: "Movies", kindTV: "Series"}[d.kind])
 				}
 			}
 			if d.trending {
 				q.Set("mediaType", map[string]string{"": "all", kindMovie: kindMovie, kindTV: kindTV}[kind])
 			}
-			var pg page
-			if err := p.api.get(ctx, tg, d.path, q, &pg); err != nil {
+			pg, err := p.page(ctx, tg, d.path, q)
+			if err != nil {
 				errs[i] = err
 				return
 			}
@@ -159,7 +159,7 @@ func (p *plugin) ListDiscoverRows(ctx context.Context, req *pluginv1.ListDiscove
 			}
 			keys := d.filterKeys()
 			if d.filterable && len(p.genres.list(ctx, p, tg, d.kind, req.GetLanguages().GetLanguage())) == 0 {
-				keys = []string{keyPeriod, keySort} // no genre list from Seerr: the filter is not declared either
+				keys = []string{keyPeriod, keyLang, keyRating, keySort} // no genre list from Seerr: the filter is not declared either
 			}
 			rows[i] = &pluginv1.DiscoverRow{Id: d.id, Title: title, FilterKeys: keys, Works: works(pg.Results, first(d.kind, kind)), NextPageToken: nextToken(pg)}
 		}()
@@ -200,9 +200,9 @@ func (p *plugin) SearchWorks(ctx context.Context, req *pluginv1.SearchWorksReque
 	if err != nil {
 		return nil, err
 	}
-	var pg page
 	q := url.Values{"query": {query}, "page": {strconv.Itoa(pageNo)}, "language": {language(req.GetLanguages())}}
-	if err := p.api.get(ctx, tg, "/search", q, &pg); err != nil {
+	pg, err := p.page(ctx, tg, "/search", q)
+	if err != nil {
 		return nil, err
 	}
 	return &pluginv1.SearchWorksResponse{Works: works(pg.Results, kindOf(req.GetType())), NextPageToken: nextToken(pg)}, nil

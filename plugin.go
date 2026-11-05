@@ -49,11 +49,12 @@ type plugin struct {
 	users  *userCache
 	locale *localeCache
 	titles *titleCache
+	pages  *pageCache
 	genres *genreCache
 }
 
 func newPlugin() *plugin {
-	return &plugin{api: newAPI(), cache: newDetailCache(), users: newUserCache(), locale: &localeCache{now: time.Now}, titles: newTitleCache(), genres: newGenreCache()}
+	return &plugin{api: newAPI(), cache: newDetailCache(), users: newUserCache(), locale: &localeCache{now: time.Now}, titles: newTitleCache(), pages: newPageCache(), genres: newGenreCache()}
 }
 
 // Describe declares the two discover capabilities and the connection check. The settings are the address of the Seerr server and its API key.
@@ -106,6 +107,7 @@ func (p *plugin) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	p.users.clear()
 	p.locale.clear()
 	p.titles.clear()
+	p.pages.clear()
 	p.genres.clear()
 	return resp, nil
 }
@@ -301,9 +303,9 @@ type titleEntry struct {
 }
 
 const (
-	lookupSlots    = 8
+	lookupSlots    = 20
 	lookupTimeout  = 30 * time.Second
-	localizeBudget = 3 * time.Second
+	localizeBudget = time.Second
 	titleCacheMax  = 4000
 )
 
@@ -371,4 +373,61 @@ func (c *titleCache) clear() {
 	c.mu.Lock()
 	c.m = map[string]titleEntry{}
 	c.mu.Unlock()
+}
+
+// pageCache keeps a page of Seerr's list answers (discover, trending, search) for three minutes, so paging back and forth does not ask Seerr
+// again. These calls are made with the plugin's own key, so the page does not depend on the member.
+type pageCache struct {
+	mu  sync.Mutex
+	m   map[string]pageEntry
+	ttl time.Duration
+	now func() time.Time
+}
+
+type pageEntry struct {
+	at time.Time
+	pg page
+}
+
+func newPageCache() *pageCache {
+	return &pageCache{m: map[string]pageEntry{}, ttl: 3 * time.Minute, now: time.Now}
+}
+
+func (c *pageCache) get(key string) (page, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.m[key]
+	if !ok || c.now().Sub(e.at) > c.ttl {
+		return page{}, false
+	}
+	return e.pg, true
+}
+
+func (c *pageCache) put(key string, pg page) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.m) >= 300 {
+		c.m = map[string]pageEntry{}
+	}
+	c.m[key] = pageEntry{at: c.now(), pg: pg}
+}
+
+func (c *pageCache) clear() {
+	c.mu.Lock()
+	c.m = map[string]pageEntry{}
+	c.mu.Unlock()
+}
+
+// page returns one list page from Seerr, from the cache when it is fresh.
+func (p *plugin) page(ctx context.Context, tg target, path string, q url.Values) (page, error) {
+	key := tg.base + path + "?" + q.Encode()
+	if pg, ok := p.pages.get(key); ok {
+		return pg, nil
+	}
+	var pg page
+	if err := p.api.get(ctx, tg, path, q, &pg); err != nil {
+		return page{}, err
+	}
+	p.pages.put(key, pg)
+	return pg, nil
 }

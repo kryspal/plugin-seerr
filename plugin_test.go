@@ -265,8 +265,8 @@ func TestPopularRowsWithRegionalLanguages(t *testing.T) {
 				t.Errorf("work = %v, want the %s lookup", w, lang)
 			}
 			for _, r := range f.reqs {
-				if strings.HasPrefix(r.path, "/api/v1/discover/movies") && strings.Contains(r.query, "language") {
-					t.Errorf("language sent to %s?%s", r.path, r.query)
+				if strings.HasPrefix(r.path, "/api/v1/discover/movies") && strings.Contains(r.query, "language") && !strings.Contains(r.query, "language=all") {
+					t.Errorf("a display language was sent to %s?%s: Seerr reads it as the original language", r.path, r.query)
 				}
 			}
 		})

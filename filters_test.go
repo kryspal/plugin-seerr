@@ -27,15 +27,15 @@ func TestDescribeDiscoverSource(t *testing.T) {
 	for _, k := range info.GetKinds() {
 		keys := map[string]bool{}
 		for _, f := range k.GetFilters() {
-			if keys[f.GetKey()] || f.GetRequired() || f.GetMultiple() {
-				t.Errorf("filter %q repeated, required or multiple", f.GetKey())
+			if keys[f.GetKey()] || f.GetRequired() {
+				t.Errorf("filter %q repeated or required", f.GetKey())
 			}
 			keys[f.GetKey()] = true
 		}
 		if k.GetSort() == nil || keys[k.GetSort().GetKey()] {
 			t.Errorf("sort = %v", k.GetSort())
 		}
-		if len(k.GetFilters()) != 2 || k.GetFilters()[0].GetKey() != "genre" || k.GetFilters()[1].GetKey() != "period" || k.GetFilters()[0].GetLabel() != "類型" {
+		if len(k.GetFilters()) != 4 || k.GetFilters()[0].GetKey() != "genre" || k.GetFilters()[1].GetKey() != "period" || k.GetFilters()[2].GetKey() != "language" || k.GetFilters()[3].GetKey() != "rating" || !k.GetFilters()[0].GetMultiple() || k.GetFilters()[2].GetMultiple() || k.GetFilters()[0].GetLabel() != "類型" {
 			t.Errorf("filters = %v", k.GetFilters())
 		}
 	}
@@ -48,7 +48,7 @@ func TestDescribeDiscoverSource(t *testing.T) {
 		t.Errorf("periods = %v", periods)
 	}
 	sort := info.GetKinds()[0].GetSort().GetChoices()
-	if len(sort) != 3 || !sort[0].GetSelected() || sort[1].GetSelected() {
+	if len(sort) != 4 || !sort[0].GetSelected() || sort[1].GetSelected() {
 		t.Errorf("sort = %v, want the first selected", sort)
 	}
 	cn, _ := p.DescribeDiscoverSource(ctx, &pluginv1.DescribeDiscoverSourceRequest{Languages: langs("zh-CN")})
@@ -65,7 +65,7 @@ func TestDescribeWithoutGenres(t *testing.T) {
 		t.Fatalf("info = %v (%v), want the source to stay up", info, err)
 	}
 	for _, k := range info.GetKinds() {
-		if len(k.GetFilters()) != 1 || k.GetFilters()[0].GetKey() != "period" {
+		if len(k.GetFilters()) != 3 || k.GetFilters()[0].GetKey() != "period" {
 			t.Errorf("filters = %v, want the period filter only", k.GetFilters())
 		}
 	}
@@ -104,9 +104,18 @@ func TestFilteredRows(t *testing.T) {
 			[]string{"firstAirDateGte=2010-01-01", "firstAirDateLte=2019-12-31", "sortBy=vote_average.desc", "voteCountGte=200"}, []string{"primaryRelease"}},
 		{"older", "popular_movies", []*pluginv1.WorkSelection{sel("period", "older")},
 			[]string{"primaryReleaseDateLte=1979-12-31"}, []string{"primaryReleaseDateGte"}},
-		{"nothing chosen is Seerr's default", "popular_movies", nil, nil, []string{"genre", "sortBy", "DateG", "DateL", "voteCount"}},
-		{"bad values are ignored", "popular_movies", []*pluginv1.WorkSelection{sel("genre", "1;drop"), sel("period", "1850s"), sel("sort", "bogus"), sel("other", "x")},
-			nil, []string{"genre", "sortBy", "DateG", "DateL", "voteCount", "other"}},
+		{"nothing chosen is Seerr's default order, in every original language", "popular_movies", nil, []string{"language=all"}, []string{"genre", "sortBy", "DateG", "DateL", "voteCount", "voteAverage"}},
+		{"several genres are or", "popular_movies", []*pluginv1.WorkSelection{sel("genre", "878", "28", "878", "x")}, []string{"genre=878%7C28"}, nil},
+		{"Chinese covers zh and cn", "popular_movies", []*pluginv1.WorkSelection{sel("language", "zh")}, []string{"language=zh%7Ccn"}, nil},
+		{"Japanese", "popular_series", []*pluginv1.WorkSelection{sel("language", "ja")}, []string{"language=ja"}, nil},
+		{"rating with a vote floor", "popular_movies", []*pluginv1.WorkSelection{sel("rating", "7")}, []string{"voteAverageGte=7", "voteCountGte=200"}, nil},
+		{"rating on series", "popular_series", []*pluginv1.WorkSelection{sel("rating", "8"), sel("sort", "top_rated")}, []string{"voteAverageGte=8", "voteCountGte=200", "sortBy=vote_average.desc"}, nil},
+		{"title sort", "popular_movies", []*pluginv1.WorkSelection{sel("sort", "title")}, []string{"sortBy=original_title.asc", "voteCountGte=20"}, nil},
+		{"title sort series", "popular_series", []*pluginv1.WorkSelection{sel("sort", "title")}, []string{"sortBy=original_name.asc", "voteCountGte=10"}, nil},
+		{"all conditions", "popular_movies", []*pluginv1.WorkSelection{sel("genre", "16", "10751"), sel("period", "2010s"), sel("language", "ko"), sel("rating", "6"), sel("sort", "newest")},
+			[]string{"genre=16%7C10751", "language=ko", "voteAverageGte=6", "primaryReleaseDateGte=2010-01-01", "sortBy=primary_release_date.desc"}, nil},
+		{"bad values are ignored", "popular_movies", []*pluginv1.WorkSelection{sel("genre", "1;drop"), sel("period", "1850s"), sel("sort", "bogus"), sel("other", "x"), sel("language", "xx"), sel("rating", "1")},
+			nil, []string{"genre", "sortBy", "DateG", "DateL", "voteCount", "other", "voteAverage", "language=zh"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -121,7 +130,7 @@ func TestFilteredRows(t *testing.T) {
 			if err != nil || len(resp.GetRows()) != 1 {
 				t.Fatalf("rows: %v %v", resp, err)
 			}
-			if got := resp.GetRows()[0].GetFilterKeys(); strings.Join(got, ",") != "genre,period,sort" {
+			if got := resp.GetRows()[0].GetFilterKeys(); strings.Join(got, ",") != "genre,period,language,rating,sort" {
 				t.Errorf("filter_keys = %v", got)
 			}
 			q := ""
@@ -298,3 +307,33 @@ func TestMemberWorksOnePageWithinTheBudget(t *testing.T) {
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
+
+func TestListPagesAreCachedForAFewMinutes(t *testing.T) {
+	p, f := newTestPlugin(t)
+	f.details["movie:603"] = movieWith("")
+	req := &pluginv1.ListDiscoverRowsRequest{Type: pluginv1.ItemType_ITEM_TYPE_MOVIE, RowId: "popular_movies", Languages: langs("en"),
+		Selections: []*pluginv1.WorkSelection{sel("genre", "28")}}
+	for range 3 {
+		if _, err := p.ListDiscoverRows(ctx, req); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := f.count("/api/v1/discover/movies"); n != 1 {
+		t.Errorf("Seerr was asked %d times for the same page, want 1", n)
+	}
+	req.Selections = []*pluginv1.WorkSelection{sel("genre", "35")}
+	if _, err := p.ListDiscoverRows(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.count("/api/v1/discover/movies"); n != 2 {
+		t.Errorf("another filter must be another page: %d requests", n)
+	}
+	p.pages.ttl = time.Nanosecond
+	time.Sleep(5 * time.Millisecond)
+	if _, err := p.ListDiscoverRows(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.count("/api/v1/discover/movies"); n != 3 {
+		t.Errorf("an old page must be asked again: %d requests", n)
+	}
+}

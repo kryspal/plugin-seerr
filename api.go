@@ -56,7 +56,7 @@ func newAPI() *api {
 
 func newHTTP(rt http.RoundTripper) *httpclient.Client {
 	return httpclient.New(httpclient.Config{
-		Name: pluginID, UserAgent: userAgent(), Timeout: requestTimeout, MaxConcurrent: 8, MaxBodyBytes: maxBody, Transport: rt,
+		Name: pluginID, UserAgent: userAgent(), Timeout: requestTimeout, MaxConcurrent: 26, MaxBodyBytes: maxBody, Transport: rt,
 	})
 }
 
