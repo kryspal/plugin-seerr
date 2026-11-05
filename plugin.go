@@ -305,7 +305,7 @@ type titleEntry struct {
 const (
 	lookupSlots    = 20
 	lookupTimeout  = 30 * time.Second
-	localizeBudget = time.Second
+	localizeBudget = 1500 * time.Millisecond
 	titleCacheMax  = 4000
 )
 

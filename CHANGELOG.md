@@ -2,10 +2,14 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.3.1
+
+- A list waits 1.5 seconds (not one) for the title lookups: about 0.2 s more, and far more of the first answer is in the member's language.
+
 ## 0.3.0
 
 - Two more filters, original language (Chinese, Japanese, Korean, English, French, German, Spanish; Chinese covers `zh` and `cn`) and a minimum rating (6, 7, 8), genres can be several at once (any of them), and the sort gains "title".
-- Faster first opens: lookups run up to twenty at a time (one page in one round trip to TMDB instead of three), a list waits one second for them instead of three, and Seerr's own list pages are kept for three minutes.
+- Faster first opens: lookups run up to twenty at a time (one page in one round trip to TMDB instead of three), a list waits one second for them instead of three (0.3.1 makes it 1.5), and Seerr's own list pages are kept for three minutes.
 
 ## 0.2.0
 
