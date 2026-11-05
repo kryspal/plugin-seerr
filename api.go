@@ -21,7 +21,7 @@ import (
 //	GET  /auth/me                the account the API key belongs to
 //	GET  /search                 query, page, language → {page, totalPages, results[]}
 //	GET  /discover/trending      page, language, mediaType (all, movie, tv)
-//	GET  /discover/movies, /discover/movies/upcoming, /discover/tv, /discover/tv/upcoming   page, language
+//	GET  /discover/movies, /discover/tv   page, language
 //	GET  /movie/{id}, /tv/{id}   details with mediaInfo {status, requests[], seasons[]}
 //	GET  /user                   q → {results[]}; used to find the member's Seerr account
 //	POST /request                {mediaType, mediaId, seasons}

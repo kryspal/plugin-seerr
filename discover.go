@@ -66,8 +66,6 @@ var rowDefs = []rowDef{
 	{id: "trending", titleKey: "rowTrending", path: "/discover/trending", trending: true},
 	{id: "popular_movies", titleKey: "rowPopularMovies", path: "/discover/movies", kind: kindMovie},
 	{id: "popular_series", titleKey: "rowPopularSeries", path: "/discover/tv", kind: kindTV},
-	{id: "upcoming_movies", titleKey: "rowUpcomingMovies", path: "/discover/movies/upcoming", kind: kindMovie},
-	{id: "upcoming_series", titleKey: "rowUpcomingSeries", path: "/discover/tv/upcoming", kind: kindTV},
 }
 
 func (p *plugin) rowsFor(kind string) []rowDef {

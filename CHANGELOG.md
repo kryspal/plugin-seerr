@@ -2,6 +2,10 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.1.2
+
+- The two "upcoming" rows are gone: there is nothing to watch yet, so asking for those titles has no use.
+
 ## 0.1.1
 
 - Search with spaces works: Seerr wants `%20`, not `+`, in a query (all requests now use `%20`).

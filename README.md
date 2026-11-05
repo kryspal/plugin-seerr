@@ -9,7 +9,7 @@ go vet ./... && go test ./...
 
 ## What it does
 
-- **Discover** (`discover.source`): rows for trending titles, popular and upcoming movies, and popular and upcoming series; search; and a details page with the seasons of a series. All data comes from Seerr's own API. Kryspal Media does not call any other metadata service for this and stores no key for one.
+- **Discover** (`discover.source`): rows for trending titles, popular movies and popular series; search; and a details page with the seasons of a series. All data comes from Seerr's own API. Kryspal Media does not call any other metadata service for this and stores no key for one.
 - **Request** (`work.action`): a button on titles that have a TMDB number. For a series the member chooses the seasons; seasons that are already available or requested are shown but cannot be chosen, and the seasons nobody has asked for stay open, so a series can be requested in steps. Specials (season 0) are not offered: Seerr does not create a request for them alone.
 - **State**: each title shows what Seerr says: awaiting approval, processing, partly available, available, declined or failed. A title that is in your library always shows as in the library, whatever Seerr says.
 - **Test connection** (`plugin.checks`): a button on the settings page that checks the address and the API key.

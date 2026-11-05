@@ -102,7 +102,7 @@ func TestListRows(t *testing.T) {
 	for _, r := range resp.GetRows() {
 		ids = append(ids, r.GetId())
 	}
-	if got := strings.Join(ids, ","); got != "trending,popular_movies,popular_series,upcoming_movies,upcoming_series" {
+	if got := strings.Join(ids, ","); got != "trending,popular_movies,popular_series" {
 		t.Fatalf("rows = %s", got)
 	}
 	r := resp.GetRows()[0]
@@ -140,7 +140,7 @@ func TestListRowsTypeFilterAndPaging(t *testing.T) {
 			}
 		}
 	}
-	if got := strings.Join(ids, ","); got != "trending,popular_series,upcoming_series" {
+	if got := strings.Join(ids, ","); got != "trending,popular_series" {
 		t.Errorf("rows = %s", got)
 	}
 	next, err := p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{RowId: "popular_series", PageToken: "3"})
