@@ -2,14 +2,15 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/kryspal/plugin-sdk/hanconv"
 	pluginv1 "github.com/kryspal/plugin-sdk/pluginv1"
+	"github.com/kryspal/plugin-sdk/sdk"
 )
 
 // The keys of the filters and the sort a kind declares. They are the same for movies and series.
@@ -175,7 +176,7 @@ func applyFilters(q url.Values, kind string, sel map[string][]string, today stri
 // ---- DescribeDiscoverSource ----
 
 // DescribeDiscoverSource declares the two types and, for each, the genre and period filters and the sort. The genres come from Seerr and are
-// kept for ten minutes; when Seerr cannot be asked, the last list is used, and without one the genre filter is left out (the source stays up).
+// kept for ten minutes; when Seerr cannot be asked, the last list is used, and without one the description fails (UNAVAILABLE), so the host asks again rather than keep a description without the genre filter.
 func (p *plugin) DescribeDiscoverSource(ctx context.Context, req *pluginv1.DescribeDiscoverSourceRequest) (*pluginv1.DiscoverSourceInfo, error) {
 	tg, err := p.api.target()
 	if err != nil {
@@ -186,15 +187,22 @@ func (p *plugin) DescribeDiscoverSource(ctx context.Context, req *pluginv1.Descr
 	info := &pluginv1.DiscoverSourceInfo{}
 	kinds := []string{kindMovie, kindTV}
 	genres := make([][]genre, len(kinds))
+	gerrs := make([]error, len(kinds))
 	var wg sync.WaitGroup
 	for i, kind := range kinds {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			genres[i] = p.genres.list(ctx, p, tg, kind, tag)
+			genres[i], gerrs[i] = p.genres.list(ctx, p, tg, kind, tag)
 		}()
 	}
 	wg.Wait()
+	for _, e := range gerrs {
+		if e != nil {
+			// A description without the genre filter would be kept by the host until the plugin is reloaded: fail it instead.
+			return nil, sdk.Unavailable("seerr: the genre list is not available")
+		}
+	}
 	for i, kind := range kinds {
 		k := &pluginv1.DiscoverKind{Type: itemType(kind)}
 		if len(genres[i]) > 0 {
@@ -261,69 +269,39 @@ func (c *genreCache) clear() {
 	c.mu.Unlock()
 }
 
-// list returns the genres of a type in the member's language; for Traditional Chinese, Seerr's Simplified names are converted (TMDB has no
-// Traditional genre names). Nil when there is no list at all.
-func (c *genreCache) list(ctx context.Context, p *plugin, tg target, kind, tag string) []genre {
+// list returns the genres of a type as Seerr names them in the member's language. When Seerr cannot be asked it returns the last good list,
+// and without one the error (a fetch that works but gives no genres is an empty list, not an error).
+func (c *genreCache) list(ctx context.Context, p *plugin, tg target, kind, tag string) ([]genre, error) {
 	lang := tmdbLanguage(tag)
 	key := kind + ":" + lang
 	c.mu.Lock()
 	e, ok := c.m[key]
 	c.mu.Unlock()
 	if ok && c.now().Sub(e.at) <= c.ttl {
-		return e.list
+		return e.list, nil
 	}
 	var gs []genre
-	if err := p.api.get(ctx, tg, "/genres/"+kind, url.Values{"language": {lang}}, &gs); err != nil {
-		return e.list // the last good list, if any
+	err := p.api.get(ctx, tg, "/genres/"+kind, url.Values{"language": {lang}}, &gs)
+	if err != nil && ctx.Err() == nil {
+		err = p.api.get(ctx, tg, "/genres/"+kind, url.Values{"language": {lang}}, &gs) // one more try: a failed answer must not be cached by the host
 	}
-	{
-		conv := traditionalConverter(tag)
-		out := make([]genre, 0, len(gs))
-		for _, g := range gs {
-			g.Name = strings.TrimSpace(g.Name)
-			if g.ID <= 0 || g.Name == "" {
-				continue
-			}
-			if conv != nil {
-				g.Name = conv.Convert(g.Name)
-			}
-			out = append(out, g)
-		}
-		c.mu.Lock()
-		c.m[key] = genreEntry{at: c.now(), list: out}
-		c.mu.Unlock()
-		return out
-	}
-}
-
-// traditionalConverter returns the Simplified-to-Traditional converter for a Traditional Chinese tag (Taiwan phrases for zh-TW, Hong Kong forms
-// for zh-HK, plain for zh-Hant and zh-MO); nil for every other language.
-func traditionalConverter(tag string) *hanconv.Converter {
-	name := ""
-	switch strings.ToLower(strings.ReplaceAll(tag, "_", "-")) {
-	case "zh-tw", "zh-hant-tw":
-		name = "s2twp"
-	case "zh-hk", "zh-hant-hk":
-		name = "s2hk"
-	case "zh-hant", "zh-mo", "zh-hant-mo":
-		name = "s2t"
-	default:
-		return nil
-	}
-	convMu.Lock()
-	defer convMu.Unlock()
-	if c, ok := convs[name]; ok {
-		return c
-	}
-	c, err := hanconv.New(name)
 	if err != nil {
-		return nil
+		if ok {
+			return e.list, nil // the last good list
+		}
+		slog.Warn("seerr genres failed", "kind", kind, "error", err.Error())
+		return nil, err
 	}
-	convs[name] = c
-	return c
+	out := make([]genre, 0, len(gs))
+	for _, g := range gs {
+		g.Name = strings.TrimSpace(g.Name)
+		if g.ID <= 0 || g.Name == "" {
+			continue
+		}
+		out = append(out, g)
+	}
+	c.mu.Lock()
+	c.m[key] = genreEntry{at: c.now(), list: out}
+	c.mu.Unlock()
+	return out, nil
 }
-
-var (
-	convMu sync.Mutex
-	convs  = map[string]*hanconv.Converter{}
-)

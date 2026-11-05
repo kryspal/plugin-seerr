@@ -22,9 +22,8 @@ type fakeSeerr struct {
 	postBody   string
 	// list, when set, replaces listJSON as the answer of the list endpoints (discover, trending).
 	list string
-	// mainLocale is Seerr's default locale (en when empty); ownLocale is the answer for the key's own user settings.
-	mainLocale string
-	ownLocale  string
+	// genres, when set, replaces the genre list.
+	genres string
 	// requests answers GET /request.
 	requests string
 	// lookupDelay slows the details asked in a language, as a cold Seerr is.
@@ -60,6 +59,10 @@ func (f *fakeSeerr) handler(t *testing.T) http.Handler {
 		case path == "/user":
 			_, _ = w.Write([]byte(f.users))
 		case path == "/genres/movie", path == "/genres/tv":
+			if f.genres != "" {
+				_, _ = w.Write([]byte(f.genres))
+				return
+			}
 			_, _ = w.Write([]byte(`[{"id":28,"name":"动作"},{"id":878,"name":"科幻"},{"id":35,"name":"Comedy"}]`))
 		case path == "/request" && r.Method == http.MethodGet:
 			if f.requests == "" {
@@ -76,10 +79,6 @@ func (f *fakeSeerr) handler(t *testing.T) http.Handler {
 				return
 			}
 			_, _ = w.Write([]byte(searchJSON))
-		case path == "/settings/main":
-			_, _ = w.Write([]byte(`{"locale":"` + f.locale() + `"}`))
-		case path == "/user/1/settings/main":
-			_, _ = w.Write([]byte(f.ownLocale))
 		case strings.HasPrefix(path, "/discover/movies"), strings.HasPrefix(path, "/discover/tv"):
 			// Seerr v3.5.1 reads language here as an original-language filter: a tag with a region matches nothing.
 			if l := r.URL.Query().Get("language"); l != "" && l != "all" && strings.Contains(l, "-") {
@@ -163,13 +162,6 @@ func (f *fakeSeerr) count(prefix string) int {
 		}
 	}
 	return n
-}
-
-func (f *fakeSeerr) locale() string {
-	if f.mainLocale == "" {
-		return "en"
-	}
-	return f.mainLocale
 }
 
 func (f *fakeSeerr) listBody() string {

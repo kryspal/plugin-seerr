@@ -40,8 +40,8 @@ func TestDescribeDiscoverSource(t *testing.T) {
 		}
 	}
 	genres := info.GetKinds()[0].GetFilters()[0].GetChoices()
-	if len(genres) != 3 || genres[0].GetValue() != "28" || genres[0].GetLabel() != "動作" || genres[2].GetLabel() != "Comedy" {
-		t.Errorf("zh-TW genres = %v, want Seerr's Simplified names turned Traditional", genres)
+	if len(genres) != 3 || genres[0].GetValue() != "28" || genres[0].GetLabel() != "动作" || genres[2].GetLabel() != "Comedy" {
+		t.Errorf("zh-TW genres = %v, want Seerr's names as they are", genres)
 	}
 	periods := info.GetKinds()[0].GetFilters()[1].GetChoices()
 	if len(periods) != 6 || periods[0].GetLabel() != "2020 年代" || periods[5].GetLabel() != "1980 年以前" {
@@ -57,17 +57,20 @@ func TestDescribeDiscoverSource(t *testing.T) {
 	}
 }
 
-func TestDescribeWithoutGenres(t *testing.T) {
+func TestDescribeFailsWithoutGenres(t *testing.T) {
 	p, _ := newTestPlugin(t)
 	p.api.set("http://127.0.0.1:1", "k", "") // Seerr cannot be reached
-	info, err := p.DescribeDiscoverSource(ctx, &pluginv1.DescribeDiscoverSourceRequest{Languages: langs("en")})
-	if err != nil || len(info.GetKinds()) != 2 {
-		t.Fatalf("info = %v (%v), want the source to stay up", info, err)
+	if _, err := p.DescribeDiscoverSource(ctx, &pluginv1.DescribeDiscoverSourceRequest{Languages: langs("en")}); status.Code(err) != codes.Unavailable {
+		t.Errorf("err = %v, want UNAVAILABLE so the host does not keep a description without the genre filter", err)
 	}
-	for _, k := range info.GetKinds() {
-		if len(k.GetFilters()) != 3 || k.GetFilters()[0].GetKey() != "period" {
-			t.Errorf("filters = %v, want the period filter only", k.GetFilters())
-		}
+}
+
+func TestDescribeWithAnEmptyGenreList(t *testing.T) {
+	p, f := newTestPlugin(t)
+	f.genres = "[]"
+	info, err := p.DescribeDiscoverSource(ctx, &pluginv1.DescribeDiscoverSourceRequest{Languages: langs("en")})
+	if err != nil || len(info.GetKinds()) != 2 || len(info.GetKinds()[0].GetFilters()) != 3 || info.GetKinds()[0].GetFilters()[0].GetKey() != "period" {
+		t.Errorf("info = %v (%v), want the period filter first", info, err)
 	}
 }
 

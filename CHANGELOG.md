@@ -2,6 +2,13 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.4.0
+
+- Every list (trending, popular movies, popular series, filtered lists) shows the titles, overviews and posters Seerr gives, in Seerr's language setting, so one page has one language. The per-title lookups, the background lookups, the language probe and their caches are gone, and trending sends no `language`. Genre names are as Seerr gives them (no Simplified to Traditional conversion).
+- Details, search and the option texts keep the member's language. "My requests" still looks up each title (Seerr's request list has none), with its cache and time limit.
+- A cold page takes about 0.3 s (it took about 2.1 s).
+- `DescribeDiscoverSource` answers `UNAVAILABLE` when the genre list cannot be fetched and no earlier list exists (one retry first), instead of a description without the genre filter that the host would keep until the plugin is reloaded.
+
 ## 0.3.4
 
 - Badges no longer cost a call per title: the status in Seerr's list answers is kept for two minutes and used for the badges of the page; only a title whose status is unknown or deleted (a declined request is possible) or that no recent list showed is asked about. A request made through the plugin voids the remembered status. On a cold page the badges take 0.00 s instead of 0.2 to 0.9 s.

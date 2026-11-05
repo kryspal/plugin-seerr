@@ -47,7 +47,6 @@ type plugin struct {
 	api    *api // replaceable in tests
 	cache  *detailCache
 	users  *userCache
-	locale *localeCache
 	titles *titleCache
 	pages  *pageCache
 	states *statusCache
@@ -55,7 +54,7 @@ type plugin struct {
 }
 
 func newPlugin() *plugin {
-	return &plugin{api: newAPI(), cache: newDetailCache(), users: newUserCache(), locale: &localeCache{now: time.Now}, titles: newTitleCache(), pages: newPageCache(), states: newStatusCache(), genres: newGenreCache()}
+	return &plugin{api: newAPI(), cache: newDetailCache(), users: newUserCache(), titles: newTitleCache(), pages: newPageCache(), states: newStatusCache(), genres: newGenreCache()}
 }
 
 // Describe declares the two discover capabilities and the connection check. The settings are the address of the Seerr server and its API key.
@@ -106,7 +105,6 @@ func (p *plugin) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	p.api.set(base, key, pub)
 	p.cache.clear()
 	p.users.clear()
-	p.locale.clear()
 	p.titles.clear()
 	p.pages.clear()
 	p.states.clear()
@@ -258,35 +256,6 @@ func (c *userCache) clear() {
 	c.mu.Unlock()
 }
 
-// localeCache remembers Seerr's default locale for five minutes.
-type localeCache struct {
-	mu  sync.Mutex
-	at  time.Time
-	val string
-	now func() time.Time
-}
-
-func (c *localeCache) get() (string, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.at.IsZero() || c.now().Sub(c.at) > 5*time.Minute {
-		return "", false
-	}
-	return c.val, true
-}
-
-func (c *localeCache) put(v string) {
-	c.mu.Lock()
-	c.at, c.val = c.now(), v
-	c.mu.Unlock()
-}
-
-func (c *localeCache) clear() {
-	c.mu.Lock()
-	c.at = time.Time{}
-	c.mu.Unlock()
-}
-
 // titleCache keeps titles looked up in a language, for a day, and runs those lookups: at most lookupSlots at a time, one per title and
 // language, with their own deadline, so a call that stops waiting does not cancel them.
 type titleCache struct {
@@ -294,7 +263,6 @@ type titleCache struct {
 	m        map[string]titleEntry
 	inflight map[string]chan struct{}
 	slots    chan struct{}
-	budget   time.Duration // how long a call waits for lookups
 	ttl      time.Duration
 	now      func() time.Time
 }
@@ -305,15 +273,14 @@ type titleEntry struct {
 }
 
 const (
-	lookupSlots    = 20
-	lookupTimeout  = 30 * time.Second
-	localizeBudget = 1500 * time.Millisecond
-	titleCacheMax  = 4000
+	lookupSlots   = 20
+	lookupTimeout = 30 * time.Second
+	titleCacheMax = 4000
 )
 
 func newTitleCache() *titleCache {
 	return &titleCache{m: map[string]titleEntry{}, inflight: map[string]chan struct{}{}, slots: make(chan struct{}, lookupSlots),
-		budget: localizeBudget, ttl: 24 * time.Hour, now: time.Now}
+		ttl: 24 * time.Hour, now: time.Now}
 }
 
 func titleKey(kind string, id int, lang string) string {

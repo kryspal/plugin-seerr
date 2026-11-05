@@ -62,17 +62,14 @@ type rowDef struct {
 	path     string
 	kind     string // movie or tv: the row only exists for that type; empty: both
 	trending bool
-	// userLocale: Seerr uses the query's language here as an original-language filter and titles in the Seerr user's own locale (v3.5.1,
-	// /discover/movies and /discover/tv), so the language is not sent and the titles are localized afterwards.
-	userLocale bool
 	// filterable: the row honors the genre, period and sort choices (its filter_keys).
 	filterable bool
 }
 
 var rowDefs = []rowDef{
 	{id: "trending", titleKey: "rowTrending", path: "/discover/trending", trending: true},
-	{id: "popular_movies", titleKey: "rowPopularMovies", path: "/discover/movies", kind: kindMovie, userLocale: true, filterable: true},
-	{id: "popular_series", titleKey: "rowPopularSeries", path: "/discover/tv", kind: kindTV, userLocale: true, filterable: true},
+	{id: "popular_movies", titleKey: "rowPopularMovies", path: "/discover/movies", kind: kindMovie, filterable: true},
+	{id: "popular_series", titleKey: "rowPopularSeries", path: "/discover/tv", kind: kindTV, filterable: true},
 }
 
 func (p *plugin) rowsFor(kind string) []rowDef {
@@ -127,15 +124,6 @@ func (p *plugin) ListDiscoverRows(ctx context.Context, req *pluginv1.ListDiscove
 			return nil, err
 		}
 	}
-	// Seerr's locale is looked up while the lists are fetched, not after.
-	locCh := make(chan string, 1)
-	go func() { locCh <- p.seerrLocale(ctx, tg) }()
-	var locOnce sync.Once
-	var locVal string
-	loc := func() string {
-		locOnce.Do(func() { locVal = <-locCh })
-		return locVal
-	}
 	rows := make([]*pluginv1.DiscoverRow, len(defs))
 	errs := make([]error, len(defs))
 	var wg sync.WaitGroup
@@ -143,11 +131,9 @@ func (p *plugin) ListDiscoverRows(ctx context.Context, req *pluginv1.ListDiscove
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			lang := language(req.GetLanguages())
+			// The lists carry the titles, overviews and posters Seerr gives (its own language setting). Trending and the popular rows
+			// send no language: on /discover/movies and /discover/tv it would be an original-language filter.
 			q := url.Values{"page": {strconv.Itoa(pageNo)}}
-			if !d.userLocale {
-				q.Set("language", lang)
-			}
 			title := t.T(d.titleKey)
 			if d.filterable {
 				sortValue := applyFilters(q, d.kind, selected(req.GetSelections()), time.Now().UTC().Format("2006-01-02"))
@@ -163,11 +149,8 @@ func (p *plugin) ListDiscoverRows(ctx context.Context, req *pluginv1.ListDiscove
 				errs[i] = err
 				return
 			}
-			if d.userLocale {
-				pg.Results = p.localize(ctx, tg, pg.Results, lang, loc())
-			}
 			keys := d.filterKeys()
-			if d.filterable && len(p.genres.list(ctx, p, tg, d.kind, req.GetLanguages().GetLanguage())) == 0 {
+			if gs, _ := p.genres.list(ctx, p, tg, d.kind, req.GetLanguages().GetLanguage()); d.filterable && len(gs) == 0 {
 				keys = []string{keyPeriod, keyLang, keyRating, keySort} // no genre list from Seerr: the filter is not declared either
 			}
 			rows[i] = &pluginv1.DiscoverRow{Id: d.id, Title: title, FilterKeys: keys, Works: works(pg.Results, first(d.kind, kind)), NextPageToken: nextToken(pg)}
@@ -378,102 +361,6 @@ func nextToken(pg page) string {
 		return strconv.Itoa(pg.Page + 1)
 	}
 	return ""
-}
-
-// localize gives the titles of a list the member's language. Seerr v3.5.1 titles /discover/movies and /discover/tv in the locale of the Seerr
-// user (the member, through X-API-User, else the server default), and takes no display language there. When that locale is the language wanted
-// the list is as it is. Otherwise each title is looked up in the language: answers are kept (per title and language), the lookups run a few at a
-// time, and the call waits at most localizeBudget for them. Titles not found by then keep Seerr's text this time and are filled in by lookups
-// that go on in the background, so the next call has them.
-func (p *plugin) localize(ctx context.Context, tg target, rs []result, lang, seerrLoc string) []result {
-	if len(rs) == 0 || sameLanguage(seerrLoc, lang) {
-		return rs
-	}
-	var waits []<-chan struct{}
-	for _, r := range rs {
-		if (r.MediaType == kindMovie || r.MediaType == kindTV) && strings.TrimSpace(r.Title+r.Name) != "" {
-			if done := p.titles.start(p, tg, r.MediaType, r.ID, lang); done != nil {
-				waits = append(waits, done)
-			}
-		}
-	}
-	awaitLookups(ctx, waits, p.titles.budget)
-	out := make([]result, len(rs))
-	copy(out, rs)
-	for i := range out {
-		if l, ok := p.titles.get(out[i].MediaType, out[i].ID, lang); ok {
-			out[i].Title, out[i].Name = l.Title, l.Name
-			if l.Overview != "" {
-				out[i].Overview = l.Overview
-			}
-			if l.PosterPath != "" {
-				out[i].PosterPath = l.PosterPath
-			}
-		}
-	}
-	return out
-}
-
-// seerrLocale is the locale Seerr titles /discover/movies and /discover/tv in for the plugin's own key: the locale in the settings of the
-// key's user when it has one, else Seerr's default locale (Settings, General; v3.5.1 reads them in that order). It is written the way
-// the member's language is (tmdbLanguage), kept for five minutes, and "" when it cannot be read, which makes every list be looked up in the
-// language wanted.
-func (p *plugin) seerrLocale(ctx context.Context, tg target) string {
-	if l, ok := p.locale.get(); ok {
-		return l
-	}
-	var me struct {
-		ID int `json:"id"`
-	}
-	var own struct {
-		Locale string `json:"locale"`
-	}
-	var def struct {
-		Locale string `json:"locale"`
-	}
-	if err := p.api.get(ctx, tg, "/auth/me", nil, &me); err != nil || me.ID <= 0 {
-		return ""
-	}
-	// The key's own setting wins when it has one; both are asked at once, a no-answer for the own setting only means it has none.
-	var wg sync.WaitGroup
-	var defErr error
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		_ = p.api.get(ctx, tg, "/user/"+strconv.Itoa(me.ID)+"/settings/main", nil, &own)
-	}()
-	go func() {
-		defer wg.Done()
-		defErr = p.api.get(ctx, tg, "/settings/main", nil, &def)
-	}()
-	wg.Wait()
-	loc := strings.TrimSpace(own.Locale)
-	if loc == "" {
-		if defErr != nil {
-			return ""
-		}
-		loc = strings.TrimSpace(def.Locale)
-	}
-	if loc == "" {
-		return ""
-	}
-	loc = tmdbLanguage(loc)
-	p.locale.put(loc)
-	return loc
-}
-
-// sameLanguage is true when two language tags give the same titles for practical purposes: equal, or both English (the regions of English
-// differ in few titles).
-func sameLanguage(a, b string) bool {
-	if a == "" || b == "" {
-		return false
-	}
-	a, b = tmdbLanguage(a), tmdbLanguage(b)
-	if strings.EqualFold(a, b) {
-		return true
-	}
-	base := func(s string) string { return strings.ToLower(strings.SplitN(s, "-", 2)[0]) }
-	return base(a) == "en" && base(b) == "en"
 }
 
 // awaitLookups waits for the lookups to end, at most budget, or until ctx ends.

@@ -20,7 +20,7 @@ const (
 
 // ListMemberWorks lists the member's own requests, last changed first. Seerr answers with only that member's requests when the call is made
 // with X-API-User (checked on v3.5.1), whatever the page token says; the token carries an offset and nothing else. A member without a Seerr
-// account has no requests. Seerr's answer holds no titles, so they are looked up like the popular rows' (cached, a few at a time, with a budget);
+// account has no requests. Seerr's answer holds no titles, so they are looked up (cached, a few at a time, with a budget);
 // a request whose title is not ready in time is listed as untitled and has its title on the next page load.
 func (p *plugin) ListMemberWorks(ctx context.Context, req *pluginv1.ListMemberWorksRequest) (*pluginv1.ListMemberWorksResponse, error) {
 	tg, err := p.api.target()

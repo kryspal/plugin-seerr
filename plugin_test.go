@@ -2,10 +2,9 @@ package main
 
 import (
 	"context"
+	"net/url"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	pluginv1 "github.com/kryspal/plugin-sdk/pluginv1"
 	"google.golang.org/grpc/codes"
@@ -244,29 +243,35 @@ func TestRunCheck(t *testing.T) {
 	}
 }
 
-// Seerr v3.5.1 treats language on /discover/movies and /discover/tv as an original-language filter, and titles those lists in the Seerr
-// user's own locale. The plugin must not send it there, and must localize the titles itself.
-func TestPopularRowsWithRegionalLanguages(t *testing.T) {
-	for _, lang := range []string{"zh-CN", "zh-TW", "pt-BR", "en-GB", "ja", "zh"} {
+// Seerr v3.5.1 treats language on /discover/movies and /discover/tv as an original-language filter and titles those lists in its own
+// language setting. The lists are shown as Seerr gives them: no display language is sent to any list, and no title is looked up.
+func TestListsAreSeerrsOwnText(t *testing.T) {
+	for _, lang := range []string{"zh-CN", "zh-TW", "pt-BR", "en-GB", "ja", "zh", ""} {
 		t.Run(lang, func(t *testing.T) {
 			p, f := newTestPlugin(t)
-			f.details["movie:603"] = `{"id":603,"title":"Localized A","overview":"Localized overview","posterPath":"/loc.jpg"}`
-			f.details["tv:1396"] = `{"id":1396,"name":"Localized B"}`
-			resp, err := p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{Languages: langs(lang), RowId: "popular_movies"})
-			if err != nil || len(resp.GetRows()) != 1 || len(resp.GetRows()[0].GetWorks()) == 0 {
-				t.Fatalf("popular movies in %s: %v %v", lang, resp, err)
+			f.details["movie:603"] = `{"id":603,"title":"Localized A"}`
+			resp, err := p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{Languages: langs(lang)})
+			if err != nil || len(resp.GetRows()) != 3 {
+				t.Fatalf("rows in %q: %v %v", lang, resp, err)
 			}
-			w := resp.GetRows()[0].GetWorks()[0]
-			if strings.HasPrefix(lang, "en") {
-				if w.GetTitle() != "Movie A" {
-					t.Errorf("title = %q, want Seerr's own", w.GetTitle())
+			for _, row := range resp.GetRows() {
+				if len(row.GetWorks()) == 0 || row.GetWorks()[0].GetTitle() == "Localized A" {
+					t.Errorf("row %s works = %v, want Seerr's own text", row.GetId(), row.GetWorks())
 				}
-			} else if w.GetTitle() != "Localized A" || w.GetOverview() != "Localized overview" || !strings.HasSuffix(w.GetPosterUrl(), "/loc.jpg") {
-				t.Errorf("work = %v, want the %s lookup", w, lang)
+			}
+			if n := f.count("/api/v1/movie/") + f.count("/api/v1/tv/"); n != 0 {
+				t.Errorf("%d detail lookups for a list", n)
 			}
 			for _, r := range f.reqs {
-				if strings.HasPrefix(r.path, "/api/v1/discover/movies") && strings.Contains(r.query, "language") && !strings.Contains(r.query, "language=all") {
-					t.Errorf("a display language was sent to %s?%s: Seerr reads it as the original language", r.path, r.query)
+				if !strings.HasPrefix(r.path, "/api/v1/discover/") {
+					continue
+				}
+				v, _ := url.ParseQuery(r.query)
+				if l := v.Get("language"); l != "" && l != "all" {
+					t.Errorf("a display language was sent to %s?%s", r.path, r.query)
+				}
+				if strings.HasSuffix(r.path, "/trending") && v.Has("language") {
+					t.Errorf("trending sent a language: %s", r.query)
 				}
 			}
 		})
@@ -282,95 +287,5 @@ func TestEveryRowFillsInEveryLanguage(t *testing.T) {
 		if err != nil || len(resp.GetRows()) != 3 {
 			t.Errorf("rows in %q: %d (%v), want 3", lang, len(resp.GetRows()), err)
 		}
-	}
-}
-
-func TestLocalizeKeepsTheBudgetAndFillsTheCache(t *testing.T) {
-	p, f := newTestPlugin(t)
-	f.details["movie:603"] = `{"id":603,"title":"Localized A"}`
-	f.details["tv:1396"] = `{"id":1396,"name":"Localized B"}`
-	f.lookupDelay = 400 * time.Millisecond
-	p.titles.budget = 50 * time.Millisecond
-	title := func() string {
-		resp, err := p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{Languages: langs("zh-TW"), RowId: "popular_movies"})
-		if err != nil || len(resp.GetRows()) != 1 {
-			t.Fatalf("rows: %v %v", resp, err)
-		}
-		return resp.GetRows()[0].GetWorks()[0].GetTitle()
-	}
-	start := time.Now()
-	if got := title(); got != "Movie A" {
-		t.Errorf("first call title = %q, want Seerr's text when the lookups are slower than the budget", got)
-	}
-	if d := time.Since(start); d > 300*time.Millisecond {
-		t.Errorf("the call took %v; it must stop waiting at the budget", d)
-	}
-	time.Sleep(900 * time.Millisecond) // the lookups go on in the background
-	before := f.count("/api/v1/movie/")
-	if got := title(); got != "Localized A" {
-		t.Errorf("second call title = %q, want the cached lookup", got)
-	}
-	if after := f.count("/api/v1/movie/"); after != before {
-		t.Errorf("cached titles were looked up again: %d requests", after-before)
-	}
-}
-
-func TestLocalizeAsksOncePerTitleAtATime(t *testing.T) {
-	p, f := newTestPlugin(t)
-	f.details["movie:603"] = `{"id":603,"title":"Localized A"}`
-	f.details["tv:1396"] = `{"id":1396,"name":"Localized B"}`
-	f.lookupDelay = 150 * time.Millisecond
-	var wg sync.WaitGroup
-	for range 5 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_, _ = p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{Languages: langs("ja"), RowId: "popular_movies"})
-		}()
-	}
-	wg.Wait()
-	if n := f.count("/api/v1/movie/603"); n != 1 {
-		t.Errorf("movie 603 was looked up %d times by five simultaneous calls, want 1", n)
-	}
-}
-
-// Seerr titles the popular lists in its default locale unless the key's own user has one. When that is the member's language no lookup is
-// needed, however the locale is written.
-func TestNoLookupWhenSeerrAlreadyUsesTheLanguage(t *testing.T) {
-	cases := []struct {
-		name, main, own, member string
-		lookups                 bool
-	}{
-		{"same tag", "zh-CN", "", "zh-CN", false},
-		{"Seerr writes zh-Hans", "zh-Hans", "", "zh-CN", false},
-		{"Seerr writes zh", "zh", "", "zh-CN", false},
-		{"member writes zh", "zh-CN", "", "zh", false},
-		{"underscore", "zh_CN", "", "zh-CN", false},
-		{"English regions", "en", "", "en-GB", false},
-		{"own locale wins over the default", "en", "zh-TW", "zh-TW", false},
-		{"own locale differs from the default", "zh-CN", "en", "zh-CN", true},
-		{"Traditional member, Simplified Seerr", "zh-CN", "", "zh-TW", true},
-		{"Simplified member, Traditional Seerr", "zh-TW", "", "zh-CN", true},
-		{"other language", "en", "", "ja", true},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			p, f := newTestPlugin(t)
-			f.mainLocale = c.main
-			if c.own != "" {
-				f.ownLocale = `{"locale":"` + c.own + `"}`
-			} else {
-				f.ownLocale = `{"username":"admin"}`
-			}
-			f.details["movie:603"] = `{"id":603,"title":"Localized A"}`
-			f.details["tv:1396"] = `{"id":1396,"name":"Localized B"}`
-			if _, err := p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{Type: pluginv1.ItemType_ITEM_TYPE_MOVIE, RowId: "popular_movies", Languages: langs(c.member)}); err != nil {
-				t.Fatal(err)
-			}
-			time.Sleep(50 * time.Millisecond)
-			if got := f.count("/api/v1/movie/") > 0; got != c.lookups {
-				t.Errorf("lookups = %v, want %v", got, c.lookups)
-			}
-		})
 	}
 }
