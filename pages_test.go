@@ -236,11 +236,20 @@ func TestFilteredRows(t *testing.T) {
 	}
 }
 
-func TestRowTitlesFollowTheSort(t *testing.T) {
+func TestRowTitles(t *testing.T) {
 	p, _ := newTestPlugin(t)
-	pg := getPage(t, p, "series", "popular_series", "", "en", sel("sort", "top_rated"))
-	if got := pg.GetRows()[0].GetTitle(); got != "Top rated series" {
-		t.Errorf("title = %q", got)
+	// The Movies and Series tabs are one row named by the tab, whatever the sort.
+	for _, s := range []string{"popular", "newest", "top_rated"} {
+		if got := getPage(t, p, "series", "popular_series", "", "en", sel("sort", s)).GetRows()[0].GetTitle(); got != "Series" {
+			t.Errorf("series tab, sort %s: title %q", s, got)
+		}
+	}
+	if got := getPage(t, p, "movies", "", "", "zh-TW").GetRows()[0].GetTitle(); got != "電影" {
+		t.Errorf("movies tab title = %q", got)
+	}
+	// A genre page names its list by the sort.
+	if got := getPage(t, p, "genre:tv:28", "works", "", "en", sel("sort", "top_rated")).GetRows()[0].GetTitle(); got != "Top rated series" {
+		t.Errorf("genre page title = %q", got)
 	}
 }
 

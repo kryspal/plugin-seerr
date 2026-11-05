@@ -365,7 +365,18 @@ func (pc *pageCtx) listing(ctx context.Context, media string) (*pageDef, error) 
 	}
 	def := &pageDef{}
 	def.filters, def.sort = filterOptions(pc.t, genres)
-	def.rows = []rowSpec{pc.filteredRow(map[string]string{kindMovie: "popular_movies", kindTV: "popular_series"}[media], popularKey(media), media, nil, "")}
+	// One row, titled by the tab whatever the sort: the page is the whole list, filtered and sorted by the member.
+	row := pc.filteredRow(map[string]string{kindMovie: "popular_movies", kindTV: "popular_series"}[media], popularKey(media), media, nil, "")
+	title := pc.t.T(map[string]string{kindMovie: "tabMovies", kindTV: "tabSeries"}[media])
+	fetch := row.fetch
+	row.fetch = func(ctx context.Context, pageNo int) (*pluginv1.DiscoverRow, error) {
+		r, err := fetch(ctx, pageNo)
+		if r != nil {
+			r.Title = title
+		}
+		return r, err
+	}
+	def.rows = []rowSpec{row}
 	return def, nil
 }
 

@@ -2,6 +2,10 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.5.2
+
+- The Movies and Series tabs are one row each, titled Movies and Series whatever the sort. The page declares the filters (genre, period, language, rating) and the sort (most popular, newest, top rated); the default is most popular.
+
 ## 0.5.1
 
 - Studio and network cards are marked as logos (shown whole, not cropped) and use the wider w500 logo; genre cards stay covers.
