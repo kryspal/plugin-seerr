@@ -23,7 +23,7 @@ For a series, a season is blocked when Seerr lists it as pending, processing, pa
 
 ## Calls
 
-- Badges (`include_actions` false): one `GET /movie/{id}` or `/tv/{id}` per title, at most six at a time, kept for ten seconds. No user lookup unless a title has a declined or failed request.
+- Badges (`include_actions` false): the status each list answer (discover, trending, search) carried in `mediaInfo.status` is kept for two minutes, so the badges of a page of works need no call per title. A title shown without `mediaInfo` has no record in Seerr, so it is simply not requested. What the list does not carry is the requests (a declined or failed request counts only for the member who made it), so a title whose status is unknown or deleted, or one no recent list showed, is asked about with one `GET /movie/{id}` or `/tv/{id}`, many at a time, kept for ten seconds. A request made through the plugin makes the remembered status of that title void. No user lookup unless a title has a declined or failed request.
 - Opening a title (`include_actions` true): the same call without the cache, and the offer with the season question.
 - Request: user lookup (cached five minutes per member code), a fresh detail check, `POST /request` with `X-Api-Key` and `X-API-User`, a fresh detail again for the new state.
 - Refusals, not errors: no Seerr account (with a link), 403 with "quota" in the message, any other 403, 409, nothing left to request, no valid season. A rejected API key (401) is `FAILED_PRECONDITION`, an unreachable Seerr is `UNAVAILABLE`.
@@ -35,6 +35,8 @@ Seerr v3.5.1: `/discover/movies` and `/discover/tv` use the query's `language` a
 ## Where the time goes (measured, Seerr v3.5.1 in a container on the same host)
 
 TMDB answers in about 0.5 s whatever Seerr asks (a bare request to api.themoviedb.org takes 0.48 to 0.53 s), so every Seerr call that is not cached is 0.3 to 0.9 s. Seerr itself does not serialize: 20 uncached `/movie/{id}?language=` calls take 10.2 s one after the other, 2.9 s eight at a time, 1.5 s all at once. A page of 20 titles therefore costs one round trip to TMDB when all 20 run together, three rounds with eight slots, which is why the lookup slots are 20 and not 8. The list itself (`/discover/...`) is one more call of 0.5 to 0.8 s when uncached; Seerr's list pages are kept for three minutes. With a one-second budget for the lookups an uncached page returns in 1.5 to 1.8 s; with 1.5 s (the one used) in 1.7 to 2.0 s; with 3 s in 3.2 to 3.5 s. The titles localized in the first answer (zh-TW and zh-CN, pages never opened before): budget 1 s, 0 to 12 of 20 (movies 1 and 12, series 0 and 6); budget 1.5 s, 18 to 20 of movies and 2 to 11 of series; budget 3 s, movies 19 and series 8 to 16. The rest arrive through the background lookups a few seconds later (movies 18 to 20 of 20, series 8 to 18 of 20; the others have no title in that language) and are there on the next call.
+
+Measured segments of one cold page of 20 (Seerr v3.5.1 in a container on the same host, Seerr default language en, member zh-CN and zh-TW, mean of three pages each), host view = list call, then badges: Seerr list 0.45 to 0.71 s; list call 2.07 to 2.14 s, of which the title lookups wait about 1.4 to 1.6 s (the 1.5 s budget); badges 0.00 s (0.3.3: 0.24 s for series, 0.83 to 0.90 s for movies); total 2.07 to 2.14 s (0.3.3: 2.32 to 3.04 s).
 
 ## Filters and sort
 

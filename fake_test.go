@@ -20,6 +20,8 @@ type fakeSeerr struct {
 	users      string
 	postStatus int
 	postBody   string
+	// list, when set, replaces listJSON as the answer of the list endpoints (discover, trending).
+	list string
 	// mainLocale is Seerr's default locale (en when empty); ownLocale is the answer for the key's own user settings.
 	mainLocale string
 	ownLocale  string
@@ -84,9 +86,9 @@ func (f *fakeSeerr) handler(t *testing.T) http.Handler {
 				_, _ = w.Write([]byte(`{"page":1,"totalPages":1,"totalResults":0,"results":[]}`))
 				return
 			}
-			_, _ = w.Write([]byte(listJSON))
+			_, _ = w.Write([]byte(f.listBody()))
 		case strings.HasPrefix(path, "/discover/"):
-			_, _ = w.Write([]byte(listJSON))
+			_, _ = w.Write([]byte(f.listBody()))
 		case strings.HasPrefix(path, "/movie/"), strings.HasPrefix(path, "/tv/"):
 			if f.lookupDelay > 0 && r.URL.Query().Get("language") != "" {
 				time.Sleep(f.lookupDelay)
@@ -168,4 +170,11 @@ func (f *fakeSeerr) locale() string {
 		return "en"
 	}
 	return f.mainLocale
+}
+
+func (f *fakeSeerr) listBody() string {
+	if f.list != "" {
+		return f.list
+	}
+	return listJSON
 }

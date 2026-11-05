@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	pluginv1 "github.com/kryspal/plugin-sdk/pluginv1"
 	"google.golang.org/grpc/codes"
@@ -381,5 +382,76 @@ func TestPublicAddressInRefusal(t *testing.T) {
 	resp, err := p.RunWorkAction(ctx, &pluginv1.RunWorkActionRequest{Action: "request", Work: movieRef(""), Member: &pluginv1.WorkMember{Id: "z", Name: "Zed"}})
 	if err != nil || resp.GetLink().GetUrl() != "https://seerr.example.net" {
 		t.Errorf("link = %v (%v)", resp.GetLink(), err)
+	}
+}
+
+func badgeStates(t *testing.T, p *plugin, refs ...*pluginv1.WorkRef) map[string]*pluginv1.WorkState {
+	t.Helper()
+	resp, err := p.GetWorkStates(ctx, &pluginv1.GetWorkStatesRequest{Works: refs, Member: mia, Languages: langs("en")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]*pluginv1.WorkState{}
+	for _, s := range resp.GetStates() {
+		out[s.GetRef()] = s
+	}
+	return out
+}
+
+// A list answer carries mediaInfo.status, so the badges of a page of works need no call per title.
+func TestBadgesUseWhatTheListsSaid(t *testing.T) {
+	p, f := newTestPlugin(t)
+	f.list = `{"page":1,"totalPages":1,"results":[
+	 {"id":603,"mediaType":"movie","title":"A","mediaInfo":{"status":5}},
+	 {"id":1396,"mediaType":"tv","name":"B","mediaInfo":{"status":3}},
+	 {"id":700,"mediaType":"movie","title":"C"},
+	 {"id":701,"mediaType":"movie","title":"D","mediaInfo":{"status":1}}]}`
+	f.details["movie:701"] = movieWith(`{"status":1,"requests":[{"status":3,"requestedBy":{"id":5}}]}`)
+	if _, err := p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{Type: pluginv1.ItemType_ITEM_TYPE_MOVIE, RowId: "popular_movies", Languages: langs("en")}); err != nil {
+		t.Fatal(err)
+	}
+	ref := func(r string, ty pluginv1.ItemType, id string) *pluginv1.WorkRef {
+		return &pluginv1.WorkRef{Ref: r, Type: ty, ProviderIds: map[string]string{"tmdb": id}}
+	}
+	m, tv := pluginv1.ItemType_ITEM_TYPE_MOVIE, pluginv1.ItemType_ITEM_TYPE_SERIES
+	got := badgeStates(t, p, ref("a", m, "603"), ref("b", tv, "1396"), ref("c", m, "700"), ref("d", m, "701"))
+	if got["a"].GetStatus() != pluginv1.WorkStatus_WORK_STATUS_AVAILABLE || got["b"].GetStatus() != pluginv1.WorkStatus_WORK_STATUS_PROCESSING ||
+		got["c"].GetStatus() != pluginv1.WorkStatus_WORK_STATUS_NONE {
+		t.Errorf("states = %v", got)
+	}
+	// Only the title whose status the list cannot settle (unknown: a declined request is possible) is asked about.
+	if got["d"].GetStatus() != pluginv1.WorkStatus_WORK_STATUS_DECLINED {
+		t.Errorf("d = %v, want the member's declined request found", got["d"])
+	}
+	if n := f.count("/api/v1/movie/") + f.count("/api/v1/tv/"); n != 1 {
+		t.Errorf("%d detail calls, want 1 (title D)", n)
+	}
+}
+
+func TestBadgesFallBackToDetailsAndRequestsInvalidateThem(t *testing.T) {
+	p, f := newTestPlugin(t)
+	f.details["movie:603"] = movieWith(`{"status":5}`)
+	// Never seen in a list: asked per title.
+	if got := badgeStates(t, p, movieRef("a")); got["a"].GetStatus() != pluginv1.WorkStatus_WORK_STATUS_AVAILABLE || f.count("/api/v1/movie/") != 1 {
+		t.Fatalf("unseen title: %v, %d calls", got, f.count("/api/v1/movie/"))
+	}
+	// Seen, then old: asked again.
+	p.states.record([]result{{ID: 603, MediaType: kindMovie}})
+	p.states.ttl = time.Nanosecond
+	time.Sleep(5 * time.Millisecond)
+	p.cache.clear()
+	_ = badgeStates(t, p, movieRef("a"))
+	if f.count("/api/v1/movie/") != 2 {
+		t.Errorf("an old list answer must not be used: %d calls", f.count("/api/v1/movie/"))
+	}
+	// A request made through the plugin makes the remembered status void.
+	p.states.ttl = time.Hour
+	p.states.record([]result{{ID: 603, MediaType: kindMovie}})
+	f.details["movie:603"] = movieWith("")
+	if _, err := p.RunWorkAction(ctx, &pluginv1.RunWorkActionRequest{Action: "request", Work: movieRef(""), Member: mia}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := p.states.get(kindMovie, 603); ok {
+		t.Error("the status remembered from a list survived a request")
 	}
 }

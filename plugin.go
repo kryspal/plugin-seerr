@@ -50,11 +50,12 @@ type plugin struct {
 	locale *localeCache
 	titles *titleCache
 	pages  *pageCache
+	states *statusCache
 	genres *genreCache
 }
 
 func newPlugin() *plugin {
-	return &plugin{api: newAPI(), cache: newDetailCache(), users: newUserCache(), locale: &localeCache{now: time.Now}, titles: newTitleCache(), pages: newPageCache(), genres: newGenreCache()}
+	return &plugin{api: newAPI(), cache: newDetailCache(), users: newUserCache(), locale: &localeCache{now: time.Now}, titles: newTitleCache(), pages: newPageCache(), states: newStatusCache(), genres: newGenreCache()}
 }
 
 // Describe declares the two discover capabilities and the connection check. The settings are the address of the Seerr server and its API key.
@@ -108,6 +109,7 @@ func (p *plugin) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	p.locale.clear()
 	p.titles.clear()
 	p.pages.clear()
+	p.states.clear()
 	p.genres.clear()
 	return resp, nil
 }
@@ -429,5 +431,67 @@ func (p *plugin) page(ctx context.Context, tg target, path string, q url.Values)
 		return page{}, err
 	}
 	p.pages.put(key, pg)
+	p.states.record(pg.Results)
 	return pg, nil
+}
+
+// statusCache remembers what Seerr's list answers said about each title's availability (mediaInfo.status), for two minutes, so the badges of a
+// page of works need no call per title. A title the list showed without mediaInfo is not in Seerr's database: nothing was ever requested for it.
+// What the list does not carry (the requests, so whether this member's request was declined) is asked per title, only for the titles whose
+// status is unknown or deleted.
+type statusCache struct {
+	mu  sync.Mutex
+	m   map[string]statusEntry
+	ttl time.Duration
+	now func() time.Time
+}
+
+type statusEntry struct {
+	at      time.Time
+	present bool // Seerr has a record for the title
+	status  int
+}
+
+func newStatusCache() *statusCache {
+	return &statusCache{m: map[string]statusEntry{}, ttl: 2 * time.Minute, now: time.Now}
+}
+
+func (c *statusCache) record(rs []result) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.m) > 3000 {
+		c.m = map[string]statusEntry{}
+	}
+	for _, r := range rs {
+		if r.MediaType != kindMovie && r.MediaType != kindTV {
+			continue
+		}
+		e := statusEntry{at: c.now()}
+		if r.MediaInfo != nil {
+			e.present, e.status = true, r.MediaInfo.Status
+		}
+		c.m[workKey(r.MediaType, r.ID)] = e
+	}
+}
+
+func (c *statusCache) get(kind string, id int) (statusEntry, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.m[workKey(kind, id)]
+	if !ok || c.now().Sub(e.at) > c.ttl {
+		return statusEntry{}, false
+	}
+	return e, true
+}
+
+func (c *statusCache) forget(kind string, id int) {
+	c.mu.Lock()
+	delete(c.m, workKey(kind, id))
+	c.mu.Unlock()
+}
+
+func (c *statusCache) clear() {
+	c.mu.Lock()
+	c.m = map[string]statusEntry{}
+	c.mu.Unlock()
 }

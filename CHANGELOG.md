@@ -2,6 +2,11 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.3.4
+
+- Badges no longer cost a call per title: the status in Seerr's list answers is kept for two minutes and used for the badges of the page; only a title whose status is unknown or deleted (a declined request is possible) or that no recent list showed is asked about. A request made through the plugin voids the remembered status. On a cold page the badges take 0.00 s instead of 0.2 to 0.9 s.
+- A list call cancelled by the member (a filter changed) is no longer logged as a failed row.
+
 ## 0.3.3
 
 - The "title" sort is gone: Seerr can only order by the original title, which looks unordered next to translated titles.

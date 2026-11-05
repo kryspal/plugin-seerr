@@ -224,6 +224,16 @@ func (p *plugin) GetWorkStates(ctx context.Context, req *pluginv1.GetWorkStatesR
 			errs[i] = sdk.NotFound("no TMDB number")
 			continue
 		}
+		// Badges only: what the lists said a moment ago is enough unless the member's own declined or failed request could matter.
+		if !req.GetIncludeActions() {
+			if e, ok := p.states.get(kind, id); ok && (!e.present || (e.status != mediaUnknown && e.status != mediaDeleted)) {
+				details[i] = result{ID: id, MediaType: kind}
+				if e.present {
+					details[i].MediaInfo = &mediaInfo{Status: e.status}
+				}
+				continue
+			}
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -363,6 +373,7 @@ func (p *plugin) RunWorkAction(ctx context.Context, req *pluginv1.RunWorkActionR
 		return nil, err
 	}
 	p.cache.forget(workKey(kind, id))
+	p.states.forget(kind, id)
 	switch {
 	case resp.Status == http.StatusForbidden:
 		if strings.Contains(strings.ToLower(errorMessage(resp.Body)), "quota") {

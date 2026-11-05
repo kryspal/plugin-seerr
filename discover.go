@@ -178,6 +178,9 @@ func (p *plugin) ListDiscoverRows(ctx context.Context, req *pluginv1.ListDiscove
 	var firstErr error
 	for i, r := range rows {
 		switch {
+		case errs[i] != nil && ctx.Err() != nil:
+			// the member left or changed the filter: not a failure of the row
+			slog.Debug("discover row cancelled", "row", defs[i].id)
 		case errs[i] != nil:
 			slog.Warn("discover row failed", "row", defs[i].id, "error", errs[i].Error())
 			if firstErr == nil {
@@ -185,6 +188,7 @@ func (p *plugin) ListDiscoverRows(ctx context.Context, req *pluginv1.ListDiscove
 			}
 		case len(r.Works) > 0:
 			resp.Rows = append(resp.Rows, r)
+		case ctx.Err() != nil:
 		default:
 			slog.Warn("discover row is empty", "row", defs[i].id, "page", pageNo)
 		}
