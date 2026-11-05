@@ -19,7 +19,7 @@ Seerr's media status: 1 unknown, 2 pending, 3 processing, 4 partly available, 5 
 
 Request status: 1 pending, 2 approved, 3 declined, 4 failed. When the media status is 1, 7 or missing, an approved request counts as processing and a pending one as pending. A declined or failed request counts only for the member who made it (found through the Seerr user); the state is then declined or failed and the button reads "Ask again". 4K requests are ignored.
 
-For a series, a season is blocked when Seerr lists it as pending, processing, partly available or available, or when an open request names it. Specials (season 0) can be chosen but are not selected by default.
+For a series, a season is blocked when Seerr lists it as pending, processing, partly available or available, or when an open request names it. Specials (season 0) are not offered: Seerr creates no request for them alone. A series stays open to every season that is not blocked, whatever its overall state.
 
 ## Calls
 

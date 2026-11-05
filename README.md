@@ -10,7 +10,7 @@ go vet ./... && go test ./...
 ## What it does
 
 - **Discover** (`discover.source`): rows for trending titles, popular and upcoming movies, and popular and upcoming series; search; and a details page with the seasons of a series. All data comes from Seerr's own API. Kryspal Media does not call any other metadata service for this and stores no key for one.
-- **Request** (`work.action`): a button on titles that have a TMDB number. For a series the member chooses the seasons; seasons that are already available or requested are shown but cannot be chosen.
+- **Request** (`work.action`): a button on titles that have a TMDB number. For a series the member chooses the seasons; seasons that are already available or requested are shown but cannot be chosen, and the seasons nobody has asked for stay open, so a series can be requested in steps. Specials (season 0) are not offered: Seerr does not create a request for them alone.
 - **State**: each title shows what Seerr says: awaiting approval, processing, partly available, available, declined or failed. A title that is in your library always shows as in the library, whatever Seerr says.
 - **Test connection** (`plugin.checks`): a button on the settings page that checks the address and the API key.
 
@@ -22,6 +22,7 @@ The plugin keeps no state. Seerr is the only place requests live.
 | --- | --- |
 | Seerr address | How this server reaches Seerr, for example `http://192.168.1.20:5055`. A path prefix behind a reverse proxy is fine. |
 | Seerr API key | Seerr, Settings, General. |
+| Address shown to members | Optional. The address the server uses to reach Seerr (for example a Docker network name) may not open in a member's browser. When a member has no Seerr account yet, the refusal carries a link; it points to this address when you set it, otherwise to the one above. |
 
 The plugin declares the permission `network.lan`, because Seerr usually runs on the local network.
 

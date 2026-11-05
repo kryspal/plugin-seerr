@@ -167,7 +167,7 @@ func TestSearch(t *testing.T) {
 	if len(resp.GetWorks()) != 1 || resp.GetWorks()[0].GetKey() != "movie:603" || resp.GetNextPageToken() != "" {
 		t.Errorf("response = %v", resp)
 	}
-	if q := f.last(t).query; !strings.Contains(q, "page=2") || !strings.Contains(q, "query=a+b") {
+	if q := f.last(t).query; !strings.Contains(q, "page=2") || !strings.Contains(q, "query=a%20b") {
 		t.Errorf("query = %s", q)
 	}
 	n := len(f.reqs)
@@ -205,11 +205,11 @@ func TestGetWork(t *testing.T) {
 
 func TestSeerrErrors(t *testing.T) {
 	p, _ := newTestPlugin(t)
-	p.api.set(p.api.base, "wrong")
+	p.api.set(p.api.base, "wrong", "")
 	if _, err := p.SearchWorks(ctx, &pluginv1.SearchWorksRequest{Query: "x"}); status.Code(err) != codes.FailedPrecondition {
 		t.Errorf("rejected key: %v, want FAILED_PRECONDITION", err)
 	}
-	p.api.set("http://127.0.0.1:1", "k")
+	p.api.set("http://127.0.0.1:1", "k", "")
 	if _, err := p.SearchWorks(ctx, &pluginv1.SearchWorksRequest{Query: "x"}); status.Code(err) != codes.Unavailable {
 		t.Errorf("unreachable: %v, want UNAVAILABLE", err)
 	}

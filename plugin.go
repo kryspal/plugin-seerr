@@ -19,6 +19,7 @@ const (
 
 	keyBaseURL = "base_url"
 	keyAPIKey  = "api_key"
+	keyPublic  = "public_url"
 
 	actionRequest = "request"
 	checkConnect  = "test_connection"
@@ -63,6 +64,7 @@ func (p *plugin) Describe(_ context.Context, req *pluginv1.DescribeRequest) (*pl
 			{Key: keyBaseURL, Type: pluginv1.ConfigFieldType_CONFIG_FIELD_TYPE_STRING, Required: true, Label: t.T("urlLabel"), Description: t.T("urlHelp"),
 				Placeholder: "http://192.168.1.20:5055"},
 			{Key: keyAPIKey, Type: pluginv1.ConfigFieldType_CONFIG_FIELD_TYPE_SECRET, Required: true, Label: t.T("keyLabel"), Description: t.T("keyHelp")},
+			{Key: keyPublic, Type: pluginv1.ConfigFieldType_CONFIG_FIELD_TYPE_STRING, Label: t.T("pubLabel"), Description: t.T("pubHelp")},
 		},
 		Checks: []*pluginv1.CheckDeclaration{{Id: checkConnect, Label: t.T("checkLabel"), Description: t.T("checkHelp")}},
 		WorkActions: []*pluginv1.WorkActionDeclaration{
@@ -79,6 +81,13 @@ func (p *plugin) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	resp := &pluginv1.ConfigureResponse{FieldErrors: map[string]string{}}
 	base, errURL := normalizeBase(req.GetValues()[keyBaseURL])
 	key := strings.TrimSpace(req.GetValues()[keyAPIKey])
+	pub := strings.TrimSpace(req.GetValues()[keyPublic])
+	if pub != "" {
+		var badPub bool
+		if pub, badPub = normalizeBase(pub); badPub {
+			resp.FieldErrors[keyPublic] = t.T("errURL")
+		}
+	}
 	if errURL {
 		resp.FieldErrors[keyBaseURL] = t.T("errURL")
 	}
@@ -88,7 +97,7 @@ func (p *plugin) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	if len(resp.FieldErrors) > 0 {
 		return resp, nil
 	}
-	p.api.set(base, key)
+	p.api.set(base, key, pub)
 	p.cache.clear()
 	p.users.clear()
 	return resp, nil

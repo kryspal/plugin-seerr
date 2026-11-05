@@ -91,7 +91,7 @@ func TestMovieStates(t *testing.T) {
 
 func TestSeriesOffer(t *testing.T) {
 	p, f := newTestPlugin(t)
-	f.details["tv:1396"] = tvWith(`{"status":4,"seasons":[{"seasonNumber":1,"status":5},{"seasonNumber":2,"status":3}],"requests":[{"status":1,"requestedBy":{"id":6},"seasons":[{"seasonNumber":3,"status":1}]}]}`)
+	f.details["tv:1396"] = tvWith(`{"status":4,"seasons":[{"seasonNumber":1,"status":5},{"seasonNumber":2,"status":3}],"requests":[{"status":1,"requestedBy":{"id":6},"seasons":[{"seasonNumber":2,"status":1}]}]}`)
 	resp, err := p.GetWorkStates(ctx, &pluginv1.GetWorkStatesRequest{Works: []*pluginv1.WorkRef{tvRef("s")}, Member: mia, Languages: langs("en"), IncludeActions: true})
 	if err != nil {
 		t.Fatal(err)
@@ -105,17 +105,16 @@ func TestSeriesOffer(t *testing.T) {
 		t.Fatalf("offer = %v", o)
 	}
 	opt := o.GetOptions()[0]
-	if opt.GetKey() != "seasons" || !opt.GetMultiple() || !opt.GetRequired() || len(opt.GetChoices()) != 4 {
+	if opt.GetKey() != "seasons" || !opt.GetMultiple() || !opt.GetRequired() || len(opt.GetChoices()) != 3 {
 		t.Fatalf("option = %v", opt)
 	}
 	want := []struct {
 		value, label, note string
 		disabled, selected bool
 	}{
-		{"0", "Specials", "", false, false},
 		{"1", "Season 1", "Available", true, false},
 		{"2", "Season 2", "Requested", true, false},
-		{"3", "Season 3", "Requested", true, false},
+		{"3", "Season 3", "", false, true},
 	}
 	for i, w := range want {
 		c := opt.GetChoices()[i]
@@ -134,8 +133,10 @@ func TestSeriesOfferEdges(t *testing.T) {
 	}{
 		{"nothing yet", "", true, "", []string{"1", "2", "3"}},
 		{"all available", `{"status":5,"seasons":[{"seasonNumber":1,"status":5}]}`, false, "", nil},
-		{"whole show awaiting approval", `{"status":2,"requests":[{"status":1,"seasons":[{"seasonNumber":1},{"seasonNumber":2},{"seasonNumber":3}]}]}`, false, "", nil},
-		{"all seasons requested", `{"status":4,"requests":[{"status":2,"seasons":[{"seasonNumber":0},{"seasonNumber":1},{"seasonNumber":2},{"seasonNumber":3}]}]}`, false, "", nil},
+		{"every season awaiting approval", `{"status":2,"requests":[{"status":1,"seasons":[{"seasonNumber":1},{"seasonNumber":2},{"seasonNumber":3}]}]}`, false, "", nil},
+		{"two seasons awaiting approval, the rest open", `{"status":2,"requests":[{"status":1,"seasons":[{"seasonNumber":1},{"seasonNumber":2}]}]}`, true, "Request more", []string{"3"}},
+		{"two seasons processing, the rest open", `{"status":3,"seasons":[{"seasonNumber":1,"status":3},{"seasonNumber":2,"status":3}]}`, true, "Request more", []string{"3"}},
+		{"all seasons requested", `{"status":4,"requests":[{"status":2,"seasons":[{"seasonNumber":1},{"seasonNumber":2},{"seasonNumber":3}]}]}`, false, "", nil},
 		{"declined", `{"status":1,"requests":[{"status":3,"requestedBy":{"id":5},"seasons":[{"seasonNumber":1}]}]}`, true, "Ask again", []string{"1", "2", "3"}},
 	}
 	for _, c := range cases {
@@ -178,7 +179,7 @@ func TestStatesBatchAndErrors(t *testing.T) {
 	if err != nil || len(resp.GetStates()) != 1 || resp.GetStates()[0].GetRef() != "a" {
 		t.Fatalf("states = %v (%v)", resp, err)
 	}
-	p.api.set(p.api.base, "wrong")
+	p.api.set(p.api.base, "wrong", "")
 	p.cache.clear()
 	if _, err := p.GetWorkStates(ctx, &pluginv1.GetWorkStatesRequest{Works: []*pluginv1.WorkRef{movieRef("a")}, Member: mia}); status.Code(err) != codes.FailedPrecondition {
 		t.Errorf("rejected key: %v, want FAILED_PRECONDITION", err)
@@ -351,5 +352,34 @@ func TestUserLookupIsCachedAndPerMember(t *testing.T) {
 	}
 	if posts := f.posts(); posts[len(posts)-1].user != "6" {
 		t.Errorf("X-API-User = %q, want 6 for the second member (case-insensitive match)", posts[len(posts)-1].user)
+	}
+}
+
+func TestSpecialsAreNotOffered(t *testing.T) {
+	p, f := newTestPlugin(t)
+	f.details["tv:1396"] = tvWith("")
+	resp, err := p.RunWorkAction(ctx, &pluginv1.RunWorkActionRequest{Action: "request", Work: tvRef(""), Member: mia,
+		Selections: []*pluginv1.WorkActionSelection{{Key: "seasons", Values: []string{"0"}}}})
+	if err != nil || !resp.GetRefused() || len(f.posts()) != 0 {
+		t.Errorf("specials only: %v %v posts %v", resp, err, f.posts())
+	}
+}
+
+func TestAnswerWithoutRequestIsNotSuccess(t *testing.T) {
+	p, f := newTestPlugin(t)
+	f.details["movie:603"] = movieWith("")
+	f.postBody = `{}`
+	if _, err := p.RunWorkAction(ctx, &pluginv1.RunWorkActionRequest{Action: "request", Work: movieRef(""), Member: mia}); status.Code(err) != codes.Unavailable {
+		t.Errorf("an answer with no request: %v, want UNAVAILABLE", err)
+	}
+}
+
+func TestPublicAddressInRefusal(t *testing.T) {
+	p, f := newTestPlugin(t)
+	f.details["movie:603"] = movieWith("")
+	p.api.set(p.api.base, "k", "https://seerr.example.net")
+	resp, err := p.RunWorkAction(ctx, &pluginv1.RunWorkActionRequest{Action: "request", Work: movieRef(""), Member: &pluginv1.WorkMember{Id: "z", Name: "Zed"}})
+	if err != nil || resp.GetLink().GetUrl() != "https://seerr.example.net" {
+		t.Errorf("link = %v (%v)", resp.GetLink(), err)
 	}
 }

@@ -46,6 +46,7 @@ type api struct {
 	mu   sync.RWMutex
 	base string // without a trailing slash or /api/v1
 	key  string
+	pub  string // address shown to members; empty: base
 	c    *httpclient.Client
 }
 
@@ -62,14 +63,14 @@ func newHTTP(rt http.RoundTripper) *httpclient.Client {
 // userAgent is the recognizable agent string: the application name and version.
 func userAgent() string { return "Kryspal Media v" + version() }
 
-func (a *api) set(base, key string) {
+func (a *api) set(base, key, pub string) {
 	a.mu.Lock()
-	a.base, a.key = base, key
+	a.base, a.key, a.pub = base, key, pub
 	a.mu.Unlock()
 }
 
 // target is the address and key one call uses.
-type target struct{ base, key string }
+type target struct{ base, key, publicURL string }
 
 func (a *api) target() (target, error) {
 	a.mu.RLock()
@@ -77,13 +78,18 @@ func (a *api) target() (target, error) {
 	if a.base == "" || a.key == "" {
 		return target{}, sdk.NeedsConfiguration("seerr: the address and the API key are not set")
 	}
-	return target{base: a.base, key: a.key}, nil
+	return target{base: a.base, key: a.key, publicURL: a.pub}, nil
 }
 
 // get decodes a 200 answer into out. 401 and 403 mean Seerr refused the plugin's API key (not a member's credential), so they are
 // FAILED_PRECONDITION; 404 is NOT_FOUND; a 429 pauses the plugin.
 func (a *api) get(ctx context.Context, t target, path string, q url.Values, out any) error {
-	resp, err := a.c.Do(ctx, httpclient.Request{URL: t.base + apiPath + path, Query: q, Header: header(t, 0)})
+	// Seerr wants a space as %20; url.Values.Encode writes +, which Seerr's /search answers with 400.
+	u := t.base + apiPath + path
+	if len(q) > 0 {
+		u += "?" + strings.ReplaceAll(q.Encode(), "+", "%20")
+	}
+	resp, err := a.c.Do(ctx, httpclient.Request{URL: u, Header: header(t, 0)})
 	if err != nil {
 		return err
 	}

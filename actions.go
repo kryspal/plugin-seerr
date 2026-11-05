@@ -108,16 +108,19 @@ func assess(kind string, r result, memberID int) assessment {
 		}
 		return a
 	}
-	if !whole && a.status != pluginv1.WorkStatus_WORK_STATUS_AVAILABLE && a.status != pluginv1.WorkStatus_WORK_STATUS_PARTIAL {
-		// Awaiting approval or processing as a whole: nothing is left to ask for.
+	if mi.Status == mediaBlocklisted {
 		return a
 	}
+	// A series stays open to the seasons nobody has asked for, whatever its overall state: the seasons below decide.
 	have := map[int]int{}
 	for _, s := range mi.Seasons {
 		have[s.SeasonNumber] = s.Status
 	}
 	blocked := false
 	for _, s := range r.Seasons {
+		if s.SeasonNumber == 0 {
+			continue // Seerr does not create a request for the specials alone
+		}
 		c := seasonChoice{number: s.SeasonNumber}
 		switch st := have[s.SeasonNumber]; {
 		case st == mediaAvailable || mi.Status == mediaAvailable:
@@ -163,7 +166,7 @@ func (a assessment) state(ref string, t i18n.Translator, offers bool) *pluginv1.
 				break
 			}
 			c := &pluginv1.WorkActionChoice{Value: strconv.Itoa(s.number), Label: genericSeason(t, s.number), Disabled: s.disabled,
-				Selected: !s.disabled && s.number > 0}
+				Selected: !s.disabled}
 			if s.noteKey != "" {
 				c.Note = t.T(s.noteKey)
 			}
@@ -339,7 +342,7 @@ func (p *plugin) RunWorkAction(ctx context.Context, req *pluginv1.RunWorkActionR
 	}
 	if uid == 0 {
 		return &pluginv1.RunWorkActionResponse{Refused: true, Message: t.T("refNoAccount"),
-			Link: &pluginv1.WorkActionLink{Url: tg.base, Label: t.T("linkOpen")}}, nil
+			Link: &pluginv1.WorkActionLink{Url: linkURL(tg), Label: t.T("linkOpen")}}, nil
 	}
 	r, err := p.detail(ctx, tg, kind, id, true)
 	if err != nil {
@@ -377,11 +380,15 @@ func (p *plugin) RunWorkAction(ctx context.Context, req *pluginv1.RunWorkActionR
 	case resp.Status < 200 || resp.Status >= 300:
 		return nil, statusError(resp)
 	}
-	out := &pluginv1.RunWorkActionResponse{Message: t.T("okApproved")}
 	var made struct {
+		ID     int `json:"id"`
 		Status int `json:"status"`
 	}
-	if json.Unmarshal(resp.Body, &made) == nil && made.Status == requestPending {
+	if json.Unmarshal(resp.Body, &made) != nil || made.ID <= 0 {
+		return nil, sdk.Unavailable("seerr: the answer holds no request")
+	}
+	out := &pluginv1.RunWorkActionResponse{Message: t.T("okApproved")}
+	if made.Status == requestPending {
 		out.Message = t.T("okPending")
 	}
 	if fresh, err := p.detail(ctx, tg, kind, id, true); err == nil {
@@ -424,4 +431,12 @@ func errorMessage(body []byte) string {
 	}
 	_ = json.Unmarshal(body, &e)
 	return e.Message
+}
+
+// linkURL is the Seerr address members see: the public one when set, else the address the server uses.
+func linkURL(tg target) string {
+	if tg.publicURL != "" {
+		return tg.publicURL
+	}
+	return tg.base
 }

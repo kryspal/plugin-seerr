@@ -53,6 +53,10 @@ func (f *fakeSeerr) handler(t *testing.T) http.Handler {
 			w.WriteHeader(f.postStatus)
 			_, _ = w.Write([]byte(f.postBody))
 		case path == "/search":
+			if strings.Contains(r.URL.RawQuery, "+") { // Seerr answers 400 "query must be url encoded"
+				http.Error(w, `{"message":"query must be url encoded"}`, http.StatusBadRequest)
+				return
+			}
 			_, _ = w.Write([]byte(searchJSON))
 		case strings.HasPrefix(path, "/discover/"):
 			_, _ = w.Write([]byte(listJSON))
@@ -112,6 +116,6 @@ func newTestPlugin(t *testing.T) (*plugin, *fakeSeerr) {
 	srv := httptest.NewServer(f.handler(t))
 	t.Cleanup(srv.Close)
 	p := newPlugin()
-	p.api.set(srv.URL, "k")
+	p.api.set(srv.URL, "k", "")
 	return p, f
 }
