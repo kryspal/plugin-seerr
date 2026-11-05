@@ -241,3 +241,44 @@ func TestRunCheck(t *testing.T) {
 		t.Errorf("unknown check: %v", err)
 	}
 }
+
+// Seerr v3.5.1 treats language on /discover/movies and /discover/tv as an original-language filter, and titles those lists in the Seerr
+// user's own locale. The plugin must not send it there, and must localize the titles itself.
+func TestPopularRowsWithRegionalLanguages(t *testing.T) {
+	for _, lang := range []string{"zh-CN", "zh-TW", "pt-BR", "en-GB", "ja", "zh"} {
+		t.Run(lang, func(t *testing.T) {
+			p, f := newTestPlugin(t)
+			f.details["movie:603"] = `{"id":603,"title":"Localized A","overview":"Localized overview","posterPath":"/loc.jpg"}`
+			f.details["tv:1396"] = `{"id":1396,"name":"Localized B"}`
+			resp, err := p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{Languages: langs(lang), RowId: "popular_movies"})
+			if err != nil || len(resp.GetRows()) != 1 || len(resp.GetRows()[0].GetWorks()) == 0 {
+				t.Fatalf("popular movies in %s: %v %v", lang, resp, err)
+			}
+			w := resp.GetRows()[0].GetWorks()[0]
+			if strings.HasPrefix(lang, "en") {
+				if w.GetTitle() != "Movie A" {
+					t.Errorf("title = %q, want Seerr's own", w.GetTitle())
+				}
+			} else if w.GetTitle() != "Localized A" || w.GetOverview() != "Localized overview" || !strings.HasSuffix(w.GetPosterUrl(), "/loc.jpg") {
+				t.Errorf("work = %v, want the %s lookup", w, lang)
+			}
+			for _, r := range f.reqs {
+				if strings.HasPrefix(r.path, "/api/v1/discover/movies") && strings.Contains(r.query, "language") {
+					t.Errorf("language sent to %s?%s", r.path, r.query)
+				}
+			}
+		})
+	}
+}
+
+func TestEveryRowFillsInEveryLanguage(t *testing.T) {
+	for _, lang := range []string{"", "en", "en-GB", "zh-CN", "zh-TW", "pt-BR", "ja"} {
+		p, f := newTestPlugin(t)
+		f.details["movie:603"] = movieWith("")
+		f.details["tv:1396"] = tvWith("")
+		resp, err := p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{Languages: langs(lang)})
+		if err != nil || len(resp.GetRows()) != 3 {
+			t.Errorf("rows in %q: %d (%v), want 3", lang, len(resp.GetRows()), err)
+		}
+	}
+}

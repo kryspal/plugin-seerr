@@ -2,6 +2,12 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.1.3
+
+- Popular movies and popular series come back in every language. Seerr reads the language of those two lists as an original-language filter, so a tag such as zh-CN or pt-BR gave an empty list; the plugin now sends no language there and localizes the titles itself.
+- A row that fails or is empty is logged (row ID and error, no keys, no member data); the other rows are still shown.
+- The member lookup no longer claims to match display names, which Seerr's user search does not cover.
+
 ## 0.1.2
 
 - The two "upcoming" rows are gone: there is nothing to watch yet, so asking for those titles has no use.

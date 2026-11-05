@@ -43,13 +43,14 @@ type plugin struct {
 	pluginv1.UnimplementedWorkActionProviderServer
 	pluginv1.UnimplementedCheckerServer
 
-	api   *api // replaceable in tests
-	cache *detailCache
-	users *userCache
+	api    *api // replaceable in tests
+	cache  *detailCache
+	users  *userCache
+	locale *localeCache
 }
 
 func newPlugin() *plugin {
-	return &plugin{api: newAPI(), cache: newDetailCache(), users: newUserCache()}
+	return &plugin{api: newAPI(), cache: newDetailCache(), users: newUserCache(), locale: &localeCache{now: time.Now}}
 }
 
 // Describe declares the two discover capabilities and the connection check. The settings are the address of the Seerr server and its API key.
@@ -100,6 +101,7 @@ func (p *plugin) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	p.api.set(base, key, pub)
 	p.cache.clear()
 	p.users.clear()
+	p.locale.clear()
 	return resp, nil
 }
 
@@ -244,5 +246,34 @@ func (c *userCache) put(member string, id int) {
 func (c *userCache) clear() {
 	c.mu.Lock()
 	c.m = map[string]userEntry{}
+	c.mu.Unlock()
+}
+
+// localeCache remembers Seerr's default locale for five minutes.
+type localeCache struct {
+	mu  sync.Mutex
+	at  time.Time
+	val string
+	now func() time.Time
+}
+
+func (c *localeCache) get() (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.at.IsZero() || c.now().Sub(c.at) > 5*time.Minute {
+		return "", false
+	}
+	return c.val, true
+}
+
+func (c *localeCache) put(v string) {
+	c.mu.Lock()
+	c.at, c.val = c.now(), v
+	c.mu.Unlock()
+}
+
+func (c *localeCache) clear() {
+	c.mu.Lock()
+	c.at = time.Time{}
 	c.mu.Unlock()
 }

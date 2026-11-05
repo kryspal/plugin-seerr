@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"net/url"
 	"strconv"
 	"strings"
@@ -60,12 +61,15 @@ type rowDef struct {
 	path     string
 	kind     string // movie or tv: the row only exists for that type; empty: both
 	trending bool
+	// userLocale: Seerr uses the query's language here as an original-language filter and titles in the Seerr user's own locale (v3.5.1,
+	// /discover/movies and /discover/tv), so the language is not sent and the titles are localized afterwards.
+	userLocale bool
 }
 
 var rowDefs = []rowDef{
 	{id: "trending", titleKey: "rowTrending", path: "/discover/trending", trending: true},
-	{id: "popular_movies", titleKey: "rowPopularMovies", path: "/discover/movies", kind: kindMovie},
-	{id: "popular_series", titleKey: "rowPopularSeries", path: "/discover/tv", kind: kindTV},
+	{id: "popular_movies", titleKey: "rowPopularMovies", path: "/discover/movies", kind: kindMovie, userLocale: true},
+	{id: "popular_series", titleKey: "rowPopularSeries", path: "/discover/tv", kind: kindTV, userLocale: true},
 }
 
 func (p *plugin) rowsFor(kind string) []rowDef {
@@ -119,7 +123,11 @@ func (p *plugin) ListDiscoverRows(ctx context.Context, req *pluginv1.ListDiscove
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			q := url.Values{"page": {strconv.Itoa(pageNo)}, "language": {language(req.GetLanguages())}}
+			lang := language(req.GetLanguages())
+			q := url.Values{"page": {strconv.Itoa(pageNo)}}
+			if !d.userLocale {
+				q.Set("language", lang)
+			}
 			if d.trending {
 				q.Set("mediaType", map[string]string{"": "all", kindMovie: kindMovie, kindTV: kindTV}[kind])
 			}
@@ -127,6 +135,9 @@ func (p *plugin) ListDiscoverRows(ctx context.Context, req *pluginv1.ListDiscove
 			if err := p.api.get(ctx, tg, d.path, q, &pg); err != nil {
 				errs[i] = err
 				return
+			}
+			if d.userLocale {
+				pg.Results = p.localize(ctx, tg, pg.Results, lang)
 			}
 			rows[i] = &pluginv1.DiscoverRow{Id: d.id, Title: t.T(d.titleKey), Works: works(pg.Results, first(d.kind, kind)), NextPageToken: nextToken(pg)}
 		}()
@@ -137,11 +148,14 @@ func (p *plugin) ListDiscoverRows(ctx context.Context, req *pluginv1.ListDiscove
 	for i, r := range rows {
 		switch {
 		case errs[i] != nil:
+			slog.Warn("discover row failed", "row", defs[i].id, "error", errs[i].Error())
 			if firstErr == nil {
 				firstErr = errs[i]
 			}
 		case len(r.Works) > 0:
 			resp.Rows = append(resp.Rows, r)
+		default:
+			slog.Warn("discover row is empty", "row", defs[i].id, "page", pageNo)
 		}
 	}
 	if len(resp.Rows) == 0 && firstErr != nil {
@@ -329,4 +343,68 @@ func nextToken(pg page) string {
 		return strconv.Itoa(pg.Page + 1)
 	}
 	return ""
+}
+
+// localize gives the titles of a list the member's language. Seerr v3.5.1 titles /discover/movies and /discover/tv in the locale of the Seerr
+// user (the member, through X-API-User, else the server default), and takes no display language there. When that locale is the language wanted
+// the list is as it is; otherwise each title is looked up in the language (Seerr caches these) and a title that cannot be looked up keeps its
+// text.
+func (p *plugin) localize(ctx context.Context, tg target, rs []result, lang string) []result {
+	if len(rs) == 0 || sameLanguage(p.seerrLocale(ctx, tg), lang) {
+		return rs
+	}
+	out := make([]result, len(rs))
+	copy(out, rs)
+	var wg sync.WaitGroup
+	for i := range out {
+		kind := out[i].MediaType
+		if kind != kindMovie && kind != kindTV {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var d result
+			if err := p.api.get(ctx, tg, "/"+kind+"/"+strconv.Itoa(out[i].ID), url.Values{"language": {lang}}, &d); err != nil {
+				return
+			}
+			if t := d.Title + d.Name; strings.TrimSpace(t) != "" {
+				out[i].Title, out[i].Name = d.Title, d.Name
+			}
+			if d.Overview != "" {
+				out[i].Overview = d.Overview
+			}
+			if d.PosterPath != "" {
+				out[i].PosterPath = d.PosterPath
+			}
+		}()
+	}
+	wg.Wait()
+	return out
+}
+
+// seerrLocale is the default locale of the Seerr server (Settings, General), kept for five minutes. It is "" when it cannot be read, which
+// makes every list be looked up in the language wanted.
+func (p *plugin) seerrLocale(ctx context.Context, tg target) string {
+	if l, ok := p.locale.get(); ok {
+		return l
+	}
+	var m struct {
+		Locale string `json:"locale"`
+	}
+	if err := p.api.get(ctx, tg, "/settings/main", nil, &m); err != nil {
+		return ""
+	}
+	p.locale.put(m.Locale)
+	return m.Locale
+}
+
+// sameLanguage is true when two language tags give the same titles for practical purposes: equal, or both English (the regions of English
+// differ in few titles).
+func sameLanguage(a, b string) bool {
+	if strings.EqualFold(a, b) {
+		return true
+	}
+	base := func(s string) string { return strings.ToLower(strings.SplitN(s, "-", 2)[0]) }
+	return base(a) == "en" && base(b) == "en"
 }

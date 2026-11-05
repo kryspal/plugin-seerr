@@ -273,7 +273,7 @@ func (p *plugin) lazyMember(ctx context.Context, tg target, m *pluginv1.WorkMemb
 
 // findUser finds the Seerr user for a member by sign-in name; 0 when there is none or it is not unique. The match goes from the most to the
 // least reliable name: the Jellyfin or Emby sign-in name (a member who signed in to Seerr with their server account), the Seerr user name,
-// the display name, the Plex name.
+// the Plex name. Seerr's user search does not look at display names (v3.5.1), so they are not matched.
 func (p *plugin) findUser(ctx context.Context, tg target, m *pluginv1.WorkMember) (int, error) {
 	name := strings.TrimSpace(m.GetName())
 	if name == "" {
@@ -286,7 +286,6 @@ func (p *plugin) findUser(ctx context.Context, tg target, m *pluginv1.WorkMember
 		Results []struct {
 			ID               int    `json:"id"`
 			Username         string `json:"username"`
-			DisplayName      string `json:"displayName"`
 			JellyfinUsername string `json:"jellyfinUsername"`
 			PlexUsername     string `json:"plexUsername"`
 		} `json:"results"`
@@ -297,7 +296,6 @@ func (p *plugin) findUser(ctx context.Context, tg target, m *pluginv1.WorkMember
 	for _, field := range []func(i int) string{
 		func(i int) string { return out.Results[i].JellyfinUsername },
 		func(i int) string { return out.Results[i].Username },
-		func(i int) string { return out.Results[i].DisplayName },
 		func(i int) string { return out.Results[i].PlexUsername },
 	} {
 		var hits []int

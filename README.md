@@ -30,9 +30,13 @@ The plugin declares the permission `network.lan`, because Seerr usually runs on 
 
 A request made with only the API key would be made, approved and counted as the administrator who owns the key. The plugin sends the header `X-API-User` with the member's Seerr user ID, so Seerr applies that member's own permissions, approval rules and quota.
 
-The member is found by sign-in name with Seerr's user search, trying in order: the Jellyfin or Emby sign-in name, the Seerr user name, the display name and the Plex name. If there is no match, or two users share the name, the member is told to sign in to Seerr once with their Kryspal Media account, with a link to Seerr. The plugin never creates Seerr users.
+The member is found by sign-in name with Seerr's user search, trying in order: the Jellyfin or Emby sign-in name, the Seerr user name and the Plex name (Seerr's user search does not cover display names). If there is no match, or two users share the name, the member is told to sign in to Seerr once with their Kryspal Media account, with a link to Seerr. The plugin never creates Seerr users.
 
 `X-API-User` is not in Seerr's published API description. The tests pin the behavior; it is known to work with Seerr v3.5.1 and newer.
+
+## Languages
+
+Titles, overviews and posters follow the member's language, whichever language that is, including Traditional Chinese (zh-TW), and regional tags such as pt-BR or en-GB. Seerr v3.5.1 reads the `language` parameter of its popular movies and popular series lists as an original-language filter (and answers with an empty list for a tag with a region), and titles those lists in the Seerr user's own locale. The plugin therefore does not send a language there and looks the titles up in the member's language afterwards when Seerr's locale differs. A list that fails or comes back empty is logged with its row ID.
 
 ## Images
 

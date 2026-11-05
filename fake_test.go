@@ -58,6 +58,15 @@ func (f *fakeSeerr) handler(t *testing.T) http.Handler {
 				return
 			}
 			_, _ = w.Write([]byte(searchJSON))
+		case path == "/settings/main":
+			_, _ = w.Write([]byte(`{"locale":"en"}`))
+		case strings.HasPrefix(path, "/discover/movies"), strings.HasPrefix(path, "/discover/tv"):
+			// Seerr v3.5.1 reads language here as an original-language filter: a tag with a region matches nothing.
+			if l := r.URL.Query().Get("language"); l != "" && l != "all" && strings.Contains(l, "-") {
+				_, _ = w.Write([]byte(`{"page":1,"totalPages":1,"totalResults":0,"results":[]}`))
+				return
+			}
+			_, _ = w.Write([]byte(listJSON))
 		case strings.HasPrefix(path, "/discover/"):
 			_, _ = w.Write([]byte(listJSON))
 		case strings.HasPrefix(path, "/movie/"), strings.HasPrefix(path, "/tv/"):

@@ -282,7 +282,7 @@ func TestRunRefusals(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			p, f := newTestPlugin(t)
-			f.users = `{"results":[{"id":5,"username":"mia","jellyfinUsername":"mia"},{"id":7,"displayName":"Dup"},{"id":8,"displayName":"dup"}]}`
+			f.users = `{"results":[{"id":5,"username":"mia","jellyfinUsername":"mia"},{"id":7,"jellyfinUsername":"Dup"},{"id":8,"jellyfinUsername":"dup"}]}`
 			f.details["movie:603"] = c.details
 			if c.status != 0 {
 				f.postStatus, f.postBody = c.status, c.body

@@ -28,6 +28,10 @@ For a series, a season is blocked when Seerr lists it as pending, processing, pa
 - Request: user lookup (cached five minutes per member code), a fresh detail check, `POST /request` with `X-Api-Key` and `X-API-User`, a fresh detail again for the new state.
 - Refusals, not errors: no Seerr account (with a link), 403 with "quota" in the message, any other 403, 409, nothing left to request, no valid season. A rejected API key (401) is `FAILED_PRECONDITION`, an unreachable Seerr is `UNAVAILABLE`.
 
+## Languages
+
+Seerr v3.5.1: `/discover/movies` and `/discover/tv` use the query's `language` as `with_original_language` (a tag with a region such as `zh-CN` matches nothing, `zh` returns Chinese-language titles only) and title the list in the locale of the Seerr user (`X-API-User`, else the server default). `/discover/trending`, `/search` and `/movie|tv/{id}` use `language` as the display language. So the popular rows send no language and, when Seerr's default locale (`GET /settings/main`, cached five minutes) is not the member's language, look each title up with `/movie|tv/{id}?language=` (Seerr caches TMDB answers; about 3 s warm, 20 s cold for a row page).
+
 ## Not done
 
 - No 4K requests, no server or quality profile choice, no cancelling or approving requests: those stay in Seerr.
