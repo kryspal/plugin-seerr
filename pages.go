@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	pluginapi "github.com/kryspal/plugin-sdk"
 	"github.com/kryspal/plugin-sdk/i18n"
 	pluginv1 "github.com/kryspal/plugin-sdk/pluginv1"
 	"github.com/kryspal/plugin-sdk/sdk"
@@ -273,11 +274,25 @@ func popularKey(media string) string {
 	return "rowPopularMovies"
 }
 
-// cardsRow is a wall of entry cards.
+// cardsRow is a wall of entry cards. Asked alone ("view all") it gives all of them, a page of at most MaxDiscoverCards at a time.
 func cardsRow(id, title string, cards []*pluginv1.DiscoverCard) rowSpec {
-	return rowSpec{id: id, fetch: func(context.Context, int) (*pluginv1.DiscoverRow, error) {
-		return &pluginv1.DiscoverRow{Id: id, Title: title, Style: pluginv1.DiscoverRowStyle_DISCOVER_ROW_STYLE_CARDS, Cards: cards}, nil
+	return rowSpec{id: id, fetch: func(_ context.Context, pageNo int) (*pluginv1.DiscoverRow, error) {
+		return cardsPage(id, title, cards, pageNo), nil
 	}}
+}
+
+func cardsPage(id, title string, cards []*pluginv1.DiscoverCard, pageNo int) *pluginv1.DiscoverRow {
+	from := (pageNo - 1) * pluginapi.MaxDiscoverCards
+	row := &pluginv1.DiscoverRow{Id: id, Title: title, Style: pluginv1.DiscoverRowStyle_DISCOVER_ROW_STYLE_CARDS}
+	if from >= len(cards) {
+		return row
+	}
+	to := min(from+pluginapi.MaxDiscoverCards, len(cards))
+	row.Cards = cards[from:to]
+	if to < len(cards) {
+		row.NextPageToken = strconv.Itoa(pageNo + 1)
+	}
+	return row
 }
 
 // ---- the tabs ----
@@ -383,7 +398,7 @@ func (pc *pageCtx) listing(ctx context.Context, media string) (*pageDef, error) 
 // genreWalls is the Genres tab: one wall of cards for movies and one for series.
 func (pc *pageCtx) genreWalls() *pageDef {
 	wall := func(id, titleKey, media string) rowSpec {
-		return rowSpec{id: id, fetch: func(ctx context.Context, _ int) (*pluginv1.DiscoverRow, error) {
+		return rowSpec{id: id, fetch: func(ctx context.Context, pageNo int) (*pluginv1.DiscoverRow, error) {
 			cards, err := pc.p.genres.wall(ctx, pc.p, pc.tg, media, pc.tag)
 			if err != nil {
 				return nil, err
@@ -392,7 +407,7 @@ func (pc *pageCtx) genreWalls() *pageDef {
 			for _, c := range cards {
 				out = append(out, &pluginv1.DiscoverCard{Title: truncate(c.Name, 64), ImageUrl: c.Backdrop, Ref: genreRef(media, c.ID), ImageKind: pluginv1.DiscoverCardImageKind_DISCOVER_CARD_IMAGE_KIND_COVER})
 			}
-			return &pluginv1.DiscoverRow{Id: id, Title: pc.t.T(titleKey), Style: pluginv1.DiscoverRowStyle_DISCOVER_ROW_STYLE_CARDS, Cards: out}, nil
+			return cardsPage(id, pc.t.T(titleKey), out, pageNo), nil
 		}}
 	}
 	return &pageDef{rows: []rowSpec{wall("genres_movies", "rowGenresMovies", kindMovie), wall("genres_series", "rowGenresSeries", kindTV)}}

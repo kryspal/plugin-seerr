@@ -2,6 +2,11 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.5.7
+
+- The genre wall no longer depends on the genre slider answering within one page request. Seerr answers the slider only after one call to TMDB per genre, which can take many seconds on a cold start or a slow link. The call now runs on its own (120 seconds, one at a time per type and language, not cancelled when the page gives up): a page waits up to four seconds, then shows the genres without pictures, and the next view has the pictures. A failure is logged (it was silent before) and tried again on the next view; a wall without pictures is kept for 20 seconds only.
+- A wall of cards asked alone ("view all": genres, studios, networks) gives every card, in pages of at most 100 when there are more.
+
 ## 0.5.6
 
 - The genre wall heals: when Seerr's genre slider fails (one retry first, logged) or gives genres without pictures, the wall without pictures is kept for 20 seconds instead of ten minutes, so the pictures come back as soon as Seerr can give them.

@@ -25,6 +25,8 @@ type fakeSeerr struct {
 	// sliderFails is how many calls to the genre slider fail with 500 before it answers; sliderEmpty gives genres with no backdrops.
 	sliderFails int
 	sliderEmpty bool
+	// sliderDelay slows the genre slider, as a Seerr that asks TMDB for every genre.
+	sliderDelay time.Duration
 	// genres, when set, replaces the genre list.
 	genres string
 	// deleted is a Seerr user ID that no longer exists: a call made for it (X-API-User) is refused with 403, as Seerr does.
@@ -82,7 +84,9 @@ func (f *fakeSeerr) handler(t *testing.T) http.Handler {
 				f.sliderFails--
 			}
 			empty := f.sliderEmpty
+			delay := f.sliderDelay
 			f.mu.Unlock()
+			time.Sleep(delay)
 			if fail {
 				http.Error(w, `{"message":"boom"}`, http.StatusInternalServerError)
 				return

@@ -33,6 +33,7 @@ import (
 const (
 	apiPath        = "/api/v1"
 	requestTimeout = 20 * time.Second
+	slowTimeout    = 120 * time.Second
 	maxBody        = 8 << 20
 
 	// imageBase serves the posters and backdrops Seerr lists by their TMDB path.
@@ -52,15 +53,18 @@ type api struct {
 	key  string
 	pub  string // address shown to members; empty: base
 	c    *httpclient.Client
+	slow *httpclient.Client // for the few Seerr calls that make Seerr ask TMDB many times (the genre slider)
 }
 
 func newAPI() *api {
-	return &api{c: newHTTP(nil)}
+	return &api{c: newHTTP(nil), slow: newHTTPTimeout(nil, slowTimeout)}
 }
 
-func newHTTP(rt http.RoundTripper) *httpclient.Client {
+func newHTTP(rt http.RoundTripper) *httpclient.Client { return newHTTPTimeout(rt, requestTimeout) }
+
+func newHTTPTimeout(rt http.RoundTripper, timeout time.Duration) *httpclient.Client {
 	return httpclient.New(httpclient.Config{
-		Name: pluginID, UserAgent: userAgent(), Timeout: requestTimeout, MaxConcurrent: 26, MaxBodyBytes: maxBody, Transport: rt,
+		Name: pluginID, UserAgent: userAgent(), Timeout: timeout, MaxConcurrent: 26, MaxBodyBytes: maxBody, Transport: rt,
 	})
 }
 
@@ -100,14 +104,27 @@ func (a *api) getAs(ctx context.Context, t target, userID int, path string, q ur
 	return decode(resp, out)
 }
 
+// getSlow is get with the long timeout, for a call Seerr answers only after many calls to TMDB.
+func (a *api) getSlow(ctx context.Context, t target, path string, q url.Values, out any) error {
+	resp, err := a.fetchWith(ctx, a.slow, t, 0, path, q)
+	if err != nil {
+		return err
+	}
+	return decode(resp, out)
+}
+
 // fetch makes the GET and returns the answer whatever its status.
 func (a *api) fetch(ctx context.Context, t target, userID int, path string, q url.Values) (httpclient.Response, error) {
+	return a.fetchWith(ctx, a.c, t, userID, path, q)
+}
+
+func (a *api) fetchWith(ctx context.Context, c *httpclient.Client, t target, userID int, path string, q url.Values) (httpclient.Response, error) {
 	// Seerr wants a space as %20; url.Values.Encode writes +, which Seerr's /search answers with 400.
 	u := t.base + apiPath + path
 	if len(q) > 0 {
 		u += "?" + strings.ReplaceAll(q.Encode(), "+", "%20")
 	}
-	return a.c.Do(ctx, httpclient.Request{URL: u, Header: header(t, userID)})
+	return c.Do(ctx, httpclient.Request{URL: u, Header: header(t, userID)})
 }
 
 // decode maps the status of an answer and decodes a 2xx body into out.

@@ -657,24 +657,62 @@ func TestGenreWallHealsWhenPicturesComeBack(t *testing.T) {
 		}
 		return n
 	}
-	for name, setup := range map[string]func(f *fakeSeerr){
-		"the slider fails":    func(f *fakeSeerr) { f.sliderFails = 2 }, // both tries of the first call
-		"the slider is empty": func(f *fakeSeerr) { f.sliderEmpty = true },
-	} {
-		t.Run(name, func(t *testing.T) {
-			p, f := newTestPlugin(t)
-			setup(f)
-			if n := images(p); n != 0 {
-				t.Fatalf("%d pictures while the slider gives none", n)
+	t.Run("the slider fails once", func(t *testing.T) {
+		p, f := newTestPlugin(t)
+		f.sliderFails = 1
+		if n := images(p); n != 0 {
+			t.Fatalf("%d pictures while the slider fails", n)
+		}
+		if n := images(p); n == 0 {
+			t.Errorf("no pictures on the next view")
+		}
+	})
+	t.Run("the slider is empty", func(t *testing.T) {
+		p, f := newTestPlugin(t)
+		f.sliderEmpty = true
+		if n := images(p); n != 0 {
+			t.Fatalf("%d pictures while the slider is empty", n)
+		}
+		f.mu.Lock()
+		f.sliderEmpty = false
+		f.mu.Unlock()
+		time.Sleep(60 * time.Millisecond)
+		if n := images(p); n == 0 {
+			t.Errorf("still no pictures after the slider recovered")
+		}
+	})
+}
+
+// A slider slower than a page may wait does not leave the wall without pictures: it goes on in the background and the next view has them.
+func TestSlowSliderFillsInTheBackground(t *testing.T) {
+	old := wallWait
+	wallWait = 30 * time.Millisecond
+	t.Cleanup(func() { wallWait = old })
+	p, f := newTestPlugin(t)
+	f.sliderDelay = 300 * time.Millisecond
+	images := func() int {
+		n := 0
+		for _, c := range getPage(t, p, "genres", "genres_movies", "", "en").GetRows()[0].GetCards() {
+			if c.GetImageUrl() != "" {
+				n++
 			}
-			f.mu.Lock()
-			f.sliderEmpty = false
-			f.mu.Unlock()
-			time.Sleep(60 * time.Millisecond)
-			if n := images(p); n == 0 {
-				t.Errorf("the wall still has no pictures after the slider recovered")
-			}
-		})
+		}
+		return n
+	}
+	start := time.Now()
+	if n := images(); n != 0 {
+		t.Fatalf("%d pictures from a slider that is still running", n)
+	}
+	if d := time.Since(start); d > 200*time.Millisecond {
+		t.Errorf("the page waited %v for the slider", d)
+	}
+	images() // a second view while it is still running starts no second call
+	time.Sleep(400 * time.Millisecond)
+	if n := images(); n == 0 {
+		t.Errorf("no pictures after the slider finished")
+	}
+	if n := f.count("/api/v1/discover/genreslider/movie"); n != 1 {
+		t.Errorf("slider asked %d times, want 1", n)
 	}
 }
 
@@ -685,5 +723,56 @@ func TestGenreWallWithPicturesIsKept(t *testing.T) {
 	getPage(t, p, "genres", "genres_movies", "", "en")
 	if n := f.count("/api/v1/discover/genreslider/movie"); n != 1 {
 		t.Errorf("slider asked %d times, want 1", n)
+	}
+}
+
+// "View all" on a wall of cards asks for the row alone: it must give every card, paging only past the host's limit.
+func TestCardWallsAskedAloneGiveEveryCard(t *testing.T) {
+	p, _ := newTestPlugin(t)
+	cases := []struct {
+		ref, row string
+		want     int
+	}{
+		{"home", "studios", len(studioWall)},
+		{"home", "networks", len(networkWall)},
+		{"genres", "genres_movies", 2},
+		{"genres", "genres_series", 2},
+	}
+	for _, c := range cases {
+		r := getPage(t, p, c.ref, c.row, "", "en").GetRows()[0]
+		if len(r.GetCards()) != c.want || r.GetNextPageToken() != "" || r.GetStyle() != pluginv1.DiscoverRowStyle_DISCOVER_ROW_STYLE_CARDS {
+			t.Errorf("%s/%s: %d cards (want %d), token %q", c.ref, c.row, len(r.GetCards()), c.want, r.GetNextPageToken())
+		}
+		if r.GetTitle() == "" {
+			t.Errorf("%s/%s: no title", c.ref, c.row)
+		}
+	}
+}
+
+func TestCardsPageBeyondTheLimit(t *testing.T) {
+	var cards []*pluginv1.DiscoverCard
+	for i := 0; i < 250; i++ {
+		cards = append(cards, &pluginv1.DiscoverCard{Title: "c" + itoa(i), Ref: "genre:movie:" + itoa(i+1)})
+	}
+	var seen []string
+	token := 1
+	for token > 0 {
+		r := cardsPage("x", "X", cards, token)
+		if len(r.GetCards()) > 100 {
+			t.Fatalf("%d cards on a page", len(r.GetCards()))
+		}
+		for _, c := range r.GetCards() {
+			seen = append(seen, c.GetTitle())
+		}
+		token = 0
+		if r.GetNextPageToken() != "" {
+			token, _ = positive(r.GetNextPageToken())
+		}
+	}
+	if len(seen) != 250 || seen[0] != "c0" || seen[249] != "c249" {
+		t.Errorf("saw %d cards", len(seen))
+	}
+	if r := cardsPage("x", "X", cards, 9); len(r.GetCards()) != 0 || r.GetNextPageToken() != "" {
+		t.Errorf("past the end: %v", r)
 	}
 }

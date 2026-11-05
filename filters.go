@@ -215,11 +215,12 @@ type genre struct {
 
 // genreCache keeps Seerr's genre lists per type and language for ten minutes, and the last good list beyond that.
 type genreCache struct {
-	mu    sync.Mutex
-	m     map[string]genreEntry
-	cards map[string]cardEntry
-	ttl   time.Duration
-	now   func() time.Time
+	mu      sync.Mutex
+	m       map[string]genreEntry
+	cards   map[string]cardEntry
+	flights map[string]chan struct{}
+	ttl     time.Duration
+	now     func() time.Time
 }
 
 type genreEntry struct {
@@ -228,7 +229,7 @@ type genreEntry struct {
 }
 
 func newGenreCache() *genreCache {
-	return &genreCache{m: map[string]genreEntry{}, cards: map[string]cardEntry{}, ttl: 10 * time.Minute, now: time.Now}
+	return &genreCache{m: map[string]genreEntry{}, cards: map[string]cardEntry{}, flights: map[string]chan struct{}{}, ttl: 10 * time.Minute, now: time.Now}
 }
 
 func (c *genreCache) clear() {
@@ -284,64 +285,111 @@ type genreCard struct {
 type cardEntry struct {
 	at       time.Time
 	list     []genreCard
-	degraded bool // some card has no picture: kept only briefly, so the wall heals when Seerr can give them
+	degraded bool // the slider failed or some card has no picture: kept only briefly, so the wall heals when Seerr can give them
 }
 
-// degradedTTL is how long a wall with missing pictures is kept.
-var degradedTTL = 20 * time.Second
+// degradedTTL is how long a wall with missing pictures is kept; wallWait is how long a page waits for the slider before it shows the genres
+// without pictures. Seerr answers the slider only after one call to TMDB per genre, which can take many seconds on a cold start: the call runs
+// on its own (long timeout, one at a time per type and language, not cancelled when the page gives up), and the next page has its result.
+var (
+	degradedTTL = 20 * time.Second
+	wallWait    = 4 * time.Second
+)
 
-// wall returns the genres of a type with a backdrop each (Seerr's genre slider, kept ten minutes). When the slider cannot be read the genres
-// come without pictures; when neither can be read, the error.
+type sliderGenre struct {
+	ID        int      `json:"id"`
+	Name      string   `json:"name"`
+	Backdrops []string `json:"backdrops"`
+}
+
+// wall returns the genres of a type with a backdrop each (Seerr's genre slider, kept ten minutes). When the slider is not there in time the
+// genres come without pictures and the slider goes on in the background; when no genres can be read at all, the error.
 func (c *genreCache) wall(ctx context.Context, p *plugin, tg target, kind, tag string) ([]genreCard, error) {
 	lang := tmdbLanguage(tag)
 	key := kind + ":" + lang
+	if l, ok := c.freshWall(key); ok {
+		return l, nil
+	}
+	done := c.startSlider(p, tg, kind, lang, key)
+	select {
+	case <-done:
+	case <-time.After(wallWait):
+	case <-ctx.Done():
+	}
 	c.mu.Lock()
 	e, ok := c.cards[key]
 	c.mu.Unlock()
-	if ok && c.now().Sub(e.at) <= map[bool]time.Duration{false: c.ttl, true: degradedTTL}[e.degraded] {
-		return e.list, nil
+	if ok && len(e.list) > 0 {
+		return e.list, nil // possibly degraded: some cards without a picture
 	}
-	var slider []struct {
-		ID        int      `json:"id"`
-		Name      string   `json:"name"`
-		Backdrops []string `json:"backdrops"`
-	}
-	var out []genreCard
-	err := p.api.get(ctx, tg, "/discover/genreslider/"+kind, url.Values{"language": {lang}}, &slider)
-	if err != nil && ctx.Err() == nil {
-		err = p.api.get(ctx, tg, "/discover/genreslider/"+kind, url.Values{"language": {lang}}, &slider) // one more try
-	}
+	gs, err := c.list(ctx, p, tg, kind, tag)
 	if err != nil {
-		slog.Warn("seerr genre slider failed", "kind", kind, "error", err.Error())
-	} else {
+		return nil, err
+	}
+	out := make([]genreCard, 0, len(gs))
+	for _, g := range gs {
+		out = append(out, genreCard{genre: g})
+	}
+	return out, nil
+}
+
+func (c *genreCache) freshWall(key string) ([]genreCard, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.cards[key]
+	if !ok || len(e.list) == 0 {
+		return nil, false
+	}
+	ttl := c.ttl
+	if e.degraded {
+		ttl = degradedTTL
+	}
+	return e.list, c.now().Sub(e.at) <= ttl
+}
+
+// startSlider starts the slider call unless one is running and returns a channel that closes when it ends.
+func (c *genreCache) startSlider(p *plugin, tg target, kind, lang, key string) <-chan struct{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if ch, ok := c.flights[key]; ok {
+		return ch
+	}
+	ch := make(chan struct{})
+	c.flights[key] = ch
+	go func() {
+		defer func() {
+			c.mu.Lock()
+			delete(c.flights, key)
+			c.mu.Unlock()
+			close(ch)
+		}()
+		var slider []sliderGenre
+		started := time.Now()
+		ctx, cancel := context.WithTimeout(context.Background(), slowTimeout)
+		defer cancel()
+		if err := p.api.getSlow(ctx, tg, "/discover/genreslider/"+kind, url.Values{"language": {lang}}, &slider); err != nil {
+			slog.Warn("seerr genre slider failed", "kind", kind, "after", time.Since(started).Round(time.Millisecond).String(), "error", err.Error())
+			return
+		}
+		var out []genreCard
+		degraded := false
 		for _, g := range slider {
 			if name := strings.TrimSpace(g.Name); g.ID > 0 && name != "" {
 				gc := genreCard{genre: genre{ID: g.ID, Name: name}}
 				if len(g.Backdrops) > 0 && g.Backdrops[0] != "" {
 					gc.Backdrop = imageBase + cardSize + g.Backdrops[0]
 				}
+				degraded = degraded || gc.Backdrop == ""
 				out = append(out, gc)
 			}
 		}
-	}
-	if len(out) == 0 {
-		gs, err := c.list(ctx, p, tg, kind, tag)
-		if err != nil {
-			return nil, err
+		if degraded {
+			slog.Warn("seerr genre slider has genres without a picture", "kind", kind)
 		}
-		for _, g := range gs {
-			out = append(out, genreCard{genre: g})
-		}
-	}
-	degraded := false
-	for _, g := range out {
-		degraded = degraded || g.Backdrop == ""
-	}
-	if degraded {
-		slog.Warn("seerr genre wall has cards without a picture", "kind", kind)
-	}
-	c.mu.Lock()
-	c.cards[key] = cardEntry{at: c.now(), list: out, degraded: degraded}
-	c.mu.Unlock()
-	return out, nil
+		slog.Debug("seerr genre slider", "kind", kind, "took", time.Since(started).Round(time.Millisecond).String(), "genres", len(out))
+		c.mu.Lock()
+		c.cards[key] = cardEntry{at: c.now(), list: out, degraded: degraded}
+		c.mu.Unlock()
+	}()
+	return ch
 }
