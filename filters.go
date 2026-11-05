@@ -68,9 +68,6 @@ var sorts = []sortDef{
 	{value: "popular", label: "sortPopular"},
 	{value: "newest", movieBy: "primary_release_date.desc", seriesBy: "first_air_date.desc", today: true, label: "sortNewest"},
 	{value: "top_rated", movieBy: "vote_average.desc", seriesBy: "vote_average.desc", minVotes: map[string]int{kindMovie: 500, kindTV: 200}, label: "sortTop"},
-	// Seerr sorts by the original title (original_title, original_name), not by the translated one. Titles with almost no votes are mostly
-	// placeholders ("!"), so a small floor keeps them out.
-	{value: "title", movieBy: "original_title.asc", seriesBy: "original_name.asc", minVotes: map[string]int{kindMovie: 20, kindTV: 10}, label: "sortTitle"},
 }
 
 const defaultSort = "popular"

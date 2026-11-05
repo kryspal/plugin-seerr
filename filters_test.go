@@ -48,7 +48,7 @@ func TestDescribeDiscoverSource(t *testing.T) {
 		t.Errorf("periods = %v", periods)
 	}
 	sort := info.GetKinds()[0].GetSort().GetChoices()
-	if len(sort) != 4 || !sort[0].GetSelected() || sort[1].GetSelected() {
+	if len(sort) != 3 || !sort[0].GetSelected() || sort[1].GetSelected() {
 		t.Errorf("sort = %v, want the first selected", sort)
 	}
 	cn, _ := p.DescribeDiscoverSource(ctx, &pluginv1.DescribeDiscoverSourceRequest{Languages: langs("zh-CN")})
@@ -110,11 +110,9 @@ func TestFilteredRows(t *testing.T) {
 		{"Japanese", "popular_series", []*pluginv1.WorkSelection{sel("language", "ja")}, []string{"language=ja"}, nil},
 		{"rating with a vote floor", "popular_movies", []*pluginv1.WorkSelection{sel("rating", "7")}, []string{"voteAverageGte=7", "voteCountGte=200"}, nil},
 		{"rating on series", "popular_series", []*pluginv1.WorkSelection{sel("rating", "8"), sel("sort", "top_rated")}, []string{"voteAverageGte=8", "voteCountGte=200", "sortBy=vote_average.desc"}, nil},
-		{"title sort", "popular_movies", []*pluginv1.WorkSelection{sel("sort", "title")}, []string{"sortBy=original_title.asc", "voteCountGte=20"}, nil},
-		{"title sort series", "popular_series", []*pluginv1.WorkSelection{sel("sort", "title")}, []string{"sortBy=original_name.asc", "voteCountGte=10"}, nil},
 		{"all conditions", "popular_movies", []*pluginv1.WorkSelection{sel("genre", "16", "10751"), sel("period", "2010s"), sel("language", "ko"), sel("rating", "6"), sel("sort", "newest")},
 			[]string{"genre=16%7C10751", "language=ko", "voteAverageGte=6", "primaryReleaseDateGte=2010-01-01", "sortBy=primary_release_date.desc"}, nil},
-		{"bad values are ignored", "popular_movies", []*pluginv1.WorkSelection{sel("genre", "1;drop"), sel("period", "1850s"), sel("sort", "bogus"), sel("other", "x"), sel("language", "xx"), sel("rating", "1")},
+		{"bad values are ignored, title is no sort", "popular_movies", []*pluginv1.WorkSelection{sel("genre", "1;drop"), sel("period", "1850s"), sel("sort", "title"), sel("other", "x"), sel("language", "xx"), sel("rating", "1")},
 			nil, []string{"genre", "sortBy", "DateG", "DateL", "voteCount", "other", "voteAverage", "language=zh"}},
 	}
 	for _, c := range cases {

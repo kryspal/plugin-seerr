@@ -127,6 +127,15 @@ func (p *plugin) ListDiscoverRows(ctx context.Context, req *pluginv1.ListDiscove
 			return nil, err
 		}
 	}
+	// Seerr's locale is looked up while the lists are fetched, not after.
+	locCh := make(chan string, 1)
+	go func() { locCh <- p.seerrLocale(ctx, tg) }()
+	var locOnce sync.Once
+	var locVal string
+	loc := func() string {
+		locOnce.Do(func() { locVal = <-locCh })
+		return locVal
+	}
 	rows := make([]*pluginv1.DiscoverRow, len(defs))
 	errs := make([]error, len(defs))
 	var wg sync.WaitGroup
@@ -143,7 +152,7 @@ func (p *plugin) ListDiscoverRows(ctx context.Context, req *pluginv1.ListDiscove
 			if d.filterable {
 				sortValue := applyFilters(q, d.kind, selected(req.GetSelections()), time.Now().UTC().Format("2006-01-02"))
 				if sortValue != defaultSort {
-					title = t.T(map[string]string{"newest": "rowNewest", "top_rated": "rowTop", "title": "rowAz"}[sortValue] + map[string]string{kindMovie: "Movies", kindTV: "Series"}[d.kind])
+					title = t.T(map[string]string{"newest": "rowNewest", "top_rated": "rowTop"}[sortValue] + map[string]string{kindMovie: "Movies", kindTV: "Series"}[d.kind])
 				}
 			}
 			if d.trending {
@@ -155,7 +164,7 @@ func (p *plugin) ListDiscoverRows(ctx context.Context, req *pluginv1.ListDiscove
 				return
 			}
 			if d.userLocale {
-				pg.Results = p.localize(ctx, tg, pg.Results, lang)
+				pg.Results = p.localize(ctx, tg, pg.Results, lang, loc())
 			}
 			keys := d.filterKeys()
 			if d.filterable && len(p.genres.list(ctx, p, tg, d.kind, req.GetLanguages().GetLanguage())) == 0 {
@@ -372,8 +381,8 @@ func nextToken(pg page) string {
 // the list is as it is. Otherwise each title is looked up in the language: answers are kept (per title and language), the lookups run a few at a
 // time, and the call waits at most localizeBudget for them. Titles not found by then keep Seerr's text this time and are filled in by lookups
 // that go on in the background, so the next call has them.
-func (p *plugin) localize(ctx context.Context, tg target, rs []result, lang string) []result {
-	if len(rs) == 0 || sameLanguage(p.seerrLocale(ctx, tg), lang) {
+func (p *plugin) localize(ctx context.Context, tg target, rs []result, lang, seerrLoc string) []result {
+	if len(rs) == 0 || sameLanguage(seerrLoc, lang) {
 		return rs
 	}
 	var waits []<-chan struct{}
@@ -421,10 +430,22 @@ func (p *plugin) seerrLocale(ctx context.Context, tg target) string {
 	if err := p.api.get(ctx, tg, "/auth/me", nil, &me); err != nil || me.ID <= 0 {
 		return ""
 	}
-	_ = p.api.get(ctx, tg, "/user/"+strconv.Itoa(me.ID)+"/settings/main", nil, &own) // no own locale is an answer too
+	// The key's own setting wins when it has one; both are asked at once, a no-answer for the own setting only means it has none.
+	var wg sync.WaitGroup
+	var defErr error
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_ = p.api.get(ctx, tg, "/user/"+strconv.Itoa(me.ID)+"/settings/main", nil, &own)
+	}()
+	go func() {
+		defer wg.Done()
+		defErr = p.api.get(ctx, tg, "/settings/main", nil, &def)
+	}()
+	wg.Wait()
 	loc := strings.TrimSpace(own.Locale)
 	if loc == "" {
-		if err := p.api.get(ctx, tg, "/settings/main", nil, &def); err != nil {
+		if defErr != nil {
 			return ""
 		}
 		loc = strings.TrimSpace(def.Locale)
