@@ -536,7 +536,15 @@ func TestARowAskedAloneCarriesTheHeader(t *testing.T) {
 	}
 }
 
-// A title whose release date is later than today (UTC) is marked "not out yet"; a missing date is not guessed.
+func badgeText(w *pluginv1.Work) string {
+	var out []string
+	for _, b := range w.GetBadges() {
+		out = append(out, b.GetText())
+	}
+	return strings.Join(out, "+")
+}
+
+// A title whose release date is later than today (UTC) gets a badge; a missing date is not guessed.
 func TestUnreleasedMarks(t *testing.T) {
 	old := today
 	today = func() string { return "2026-11-05" }
@@ -550,30 +558,44 @@ func TestUnreleasedMarks(t *testing.T) {
 	 {"id":5,"mediaType":"tv","name":"Coming","firstAirDate":"2026-12-01"},
 	 {"id":6,"mediaType":"tv","name":"Running","firstAirDate":"2020-01-01"},
 	 {"id":7,"mediaType":"movie","title":"Odd","releaseDate":"2027"}]}`
-	caps := func(lang string) []string {
+	marks := func(ref, row, lang string) []string {
 		var out []string
-		for _, w := range getPage(t, p, "movies", "popular_movies", "", lang).GetRows()[0].GetWorks() {
-			out = append(out, w.GetTitle()+"="+w.GetCaption())
+		for _, w := range getPage(t, p, ref, row, "", lang).GetRows()[0].GetWorks() {
+			out = append(out, w.GetTitle()+"="+badgeText(w))
+			if w.GetCaption() != "" {
+				t.Errorf("%s has a caption %q", w.GetTitle(), w.GetCaption())
+			}
 		}
 		return out
 	}
-	if got, want := strings.Join(caps("zh-TW"), ","), "Future=未上映,Today=,Past=,Undated=,Odd="; got != want {
-		t.Errorf("captions = %s, want %s", got, want)
+	if got, want := strings.Join(marks("movies", "popular_movies", "zh-TW"), ","), "Future=未上映,Today=,Past=,Undated=,Odd="; got != want {
+		t.Errorf("badges = %s, want %s", got, want)
 	}
-	if got := caps("en")[0]; got != "Future=Not out yet" {
+	if got := marks("movies", "popular_movies", "en")[0]; got != "Future=Upcoming" {
 		t.Errorf("en = %q", got)
 	}
-	var tv []string
-	for _, w := range getPage(t, p, "series", "popular_series", "", "zh-CN").GetRows()[0].GetWorks() {
-		tv = append(tv, w.GetTitle()+"="+w.GetCaption())
+	if got, want := strings.Join(marks("series", "popular_series", "zh-CN"), ","), "Coming=未上映,Running="; got != want {
+		t.Errorf("series = %s, want %s", got, want)
 	}
-	if want := "Coming=未上映,Running="; strings.Join(tv, ",") != want {
-		t.Errorf("series = %v, want %s", tv, want)
+	b := getPage(t, p, "movies", "popular_movies", "", "en").GetRows()[0].GetWorks()[0].GetBadges()[0]
+	if b.GetColor() != "#F59E0B" || b.GetCorner() != pluginv1.WorkBadgeCorner_WORK_BADGE_CORNER_TOP_LEFT {
+		t.Errorf("badge = %v", b)
 	}
 	// Search lists carry it too.
 	rs := []result{{ID: 1, MediaType: kindMovie, Title: "Future", ReleaseDate: "2027-03-05"}}
-	if w := works(rs, "", messages.For("zh-CN")); w[0].GetCaption() != "未上映" {
+	if w := works(rs, "", messages.For("zh-CN")); badgeText(w[0]) != "未上映" {
 		t.Errorf("works = %v", w)
+	}
+}
+
+// Every language's badge text fits the limit: the host drops a longer one.
+func TestBadgeTextFits(t *testing.T) {
+	for _, lang := range []string{"en", "zh-TW", "zh-CN", "ja", "fr", ""} {
+		for _, b := range unreleasedBadge(messages.For(lang)) {
+			if n := len([]rune(b.GetText())); n == 0 || n > 8 {
+				t.Errorf("%q: badge text %q has %d characters", lang, b.GetText(), n)
+			}
+		}
 	}
 }
 
@@ -588,10 +610,10 @@ func TestUnreleasedOnAPersonsPage(t *testing.T) {
 	 {"id":3,"mediaType":"movie","title":"Out","releaseDate":"2020-01-01","character":"Ted"}],"crew":[]}`
 	var got []string
 	for _, w := range getPage(t, p, "person:6384", "credits", "", "zh-TW").GetRows()[0].GetWorks() {
-		got = append(got, w.GetTitle()+"="+w.GetCaption())
+		got = append(got, w.GetTitle()+"="+w.GetCaption()+"|"+badgeText(w))
 	}
-	if want := "SoonNoRole=未上映,Soon=Neo · 未上映,Out=Ted"; strings.Join(got, ",") != want {
-		t.Errorf("captions = %v, want %s", got, want)
+	if want := "SoonNoRole=|未上映,Soon=Neo|未上映,Out=Ted|"; strings.Join(got, ",") != want {
+		t.Errorf("captions and badges = %v, want %s", got, want)
 	}
 }
 
@@ -599,23 +621,23 @@ func TestUnreleasedOnTheDetailPage(t *testing.T) {
 	old := today
 	today = func() string { return "2026-11-05" }
 	t.Cleanup(func() { today = old })
-	cases := []struct{ name, key, body, lang, want string }{
-		{"future date", "movie:1", `{"id":1,"title":"A","releaseDate":"2027-03-05","status":"Post Production"}`, "zh-TW", "未上映 · 2027-03-05 上映"},
-		{"future date, English", "movie:1", `{"id":1,"title":"A","releaseDate":"2027-03-05"}`, "en", "Not out yet · Out 2027-03-05"},
-		{"released", "movie:2", `{"id":2,"title":"A","releaseDate":"2020-03-05","status":"Released"}`, "en", ""},
-		{"in production without a date", "movie:3", `{"id":3,"title":"A","status":"In Production"}`, "zh-CN", "未上映"},
-		{"planned series without a date", "tv:4", `{"id":4,"name":"A","status":"Planned"}`, "en", "Not out yet"},
-		{"no date and nothing said", "movie:5", `{"id":5,"title":"A","status":"Released"}`, "en", ""},
-		{"series on the air that Seerr calls in production", "tv:6", `{"id":6,"name":"A","firstAirDate":"2020-01-01","status":"In Production"}`, "en", ""},
-		{"future series", "tv:7", `{"id":7,"name":"A","firstAirDate":"2026-12-24"}`, "en", "Not out yet · Out 2026-12-24"},
+	cases := []struct{ name, key, body, lang, badge, caption string }{
+		{"future date", "movie:1", `{"id":1,"title":"A","releaseDate":"2027-03-05","status":"Post Production"}`, "zh-TW", "未上映", "2027-03-05 上映"},
+		{"future date, English", "movie:1", `{"id":1,"title":"A","releaseDate":"2027-03-05"}`, "en", "Upcoming", "Out 2027-03-05"},
+		{"released", "movie:2", `{"id":2,"title":"A","releaseDate":"2020-03-05","status":"Released"}`, "en", "", ""},
+		{"in production without a date", "movie:3", `{"id":3,"title":"A","status":"In Production"}`, "zh-CN", "未上映", ""},
+		{"planned series without a date", "tv:4", `{"id":4,"name":"A","status":"Planned"}`, "en", "Upcoming", ""},
+		{"no date and nothing said", "movie:5", `{"id":5,"title":"A","status":"Released"}`, "en", "", ""},
+		{"series on the air that Seerr calls in production", "tv:6", `{"id":6,"name":"A","firstAirDate":"2020-01-01","status":"In Production"}`, "en", "", ""},
+		{"future series", "tv:7", `{"id":7,"name":"A","firstAirDate":"2026-12-24"}`, "en", "Upcoming", "Out 2026-12-24"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			p, f := newTestPlugin(t)
 			f.details[c.key] = c.body
 			w, err := p.GetWork(ctx, &pluginv1.GetWorkRequest{Key: c.key, Languages: langs(c.lang)})
-			if err != nil || w.GetCaption() != c.want {
-				t.Errorf("caption = %q (%v), want %q", w.GetCaption(), err, c.want)
+			if err != nil || w.GetCaption() != c.caption || badgeText(w) != c.badge {
+				t.Errorf("badge %q caption %q (%v), want %q and %q", badgeText(w), w.GetCaption(), err, c.badge, c.caption)
 			}
 		})
 	}

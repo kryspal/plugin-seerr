@@ -91,7 +91,7 @@ var messageTables = map[string]map[string]string{
 		"kindMovies":       "Movies",
 		"kindSeries":       "Series",
 		"trailer":          "Trailer",
-		"unreleased":       "Not out yet",
+		"badgeUnreleased":  "Upcoming",
 		"releasesOn":       "Out %s",
 	},
 	"zh-TW": {
@@ -179,7 +179,7 @@ var messageTables = map[string]map[string]string{
 		"kindMovies":       "電影",
 		"kindSeries":       "劇集",
 		"trailer":          "預告片",
-		"unreleased":       "未上映",
+		"badgeUnreleased":  "未上映",
 		"releasesOn":       "%s 上映",
 	},
 	"zh-CN": {
@@ -267,7 +267,7 @@ var messageTables = map[string]map[string]string{
 		"kindMovies":       "电影",
 		"kindSeries":       "剧集",
 		"trailer":          "预告片",
-		"unreleased":       "未上映",
+		"badgeUnreleased":  "未上映",
 		"releasesOn":       "%s 上映",
 	},
 }

@@ -123,7 +123,7 @@ func (p *plugin) GetWork(ctx context.Context, req *pluginv1.GetWorkRequest) (*pl
 
 // details fills what only the detail page shows: the tagline, genres, companies, credits, the related page and the trailers.
 func details(w *pluginv1.Work, r result, kind string, t i18n.Translator) {
-	w.Caption = detailCaption(r, kind, t)
+	w.Badges, w.Caption = detailRelease(r, kind, t)
 	w.Tagline = truncate(strings.TrimSpace(r.Tagline), pluginapi.MaxWorkTagline)
 	for _, g := range r.Genres {
 		if name := strings.TrimSpace(g.Name); g.ID > 0 && name != "" && len(w.Genres) < pluginapi.MaxWorkGenres {
@@ -283,7 +283,7 @@ func works(rs []result, only string, t i18n.Translator) []*pluginv1.Work {
 			continue
 		}
 		if w := toWork(r, kind); w != nil {
-			w.Caption = releaseCaption(r, kind, t)
+			w.Badges = releaseBadges(r, kind, t)
 			out = append(out, w)
 		}
 		if len(out) >= pluginapi.MaxWorksPerPage {
@@ -367,26 +367,33 @@ func notOut(date string) bool {
 	return date > today()
 }
 
-// releaseCaption is the short text of a list entry that is not out yet; empty for a title that is out or has no date (a date is not guessed).
-func releaseCaption(r result, kind string, t i18n.Translator) string {
-	if notOut(releaseDate(r, kind)) {
-		return t.T("unreleased")
-	}
-	return ""
+// The badge of a title that is not out yet: amber, top left. The text is at most 8 characters in every language.
+const badgeUnreleased = "#F59E0B"
+
+func unreleasedBadge(t i18n.Translator) []*pluginv1.WorkBadge {
+	return []*pluginv1.WorkBadge{{Text: t.T("badgeUnreleased"), Color: badgeUnreleased, Corner: pluginv1.WorkBadgeCorner_WORK_BADGE_CORNER_TOP_LEFT}}
 }
 
-// detailCaption is the same for a details page, which also knows the production status: a title with no date that Seerr says is planned or
-// in production is not out either. A known date is shown.
-func detailCaption(r result, kind string, t i18n.Translator) string {
+// releaseBadges is the badge of a list entry that is not out yet; none for a title that is out or has no date (a date is not guessed).
+func releaseBadges(r result, kind string, t i18n.Translator) []*pluginv1.WorkBadge {
+	if notOut(releaseDate(r, kind)) {
+		return unreleasedBadge(t)
+	}
+	return nil
+}
+
+// detailRelease is the badge and the caption of a details page, which also knows the production status: a title with no date that Seerr says
+// is planned or in production is not out either. The caption gives the date when there is one.
+func detailRelease(r result, kind string, t i18n.Translator) ([]*pluginv1.WorkBadge, string) {
 	date := releaseDate(r, kind)
 	if notOut(date) {
-		return truncate(t.T("unreleased")+" · "+t.Tf("releasesOn", date), pluginapi.MaxWorkCaption)
+		return unreleasedBadge(t), truncate(t.Tf("releasesOn", date), pluginapi.MaxWorkCaption)
 	}
 	if _, err := time.Parse("2006-01-02", date); err != nil {
 		switch strings.ToLower(strings.TrimSpace(r.Status)) {
 		case "planned", "rumored", "in production", "post production":
-			return t.T("unreleased")
+			return unreleasedBadge(t), ""
 		}
 	}
-	return ""
+	return nil, ""
 }

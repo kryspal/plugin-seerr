@@ -2,6 +2,10 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.5.5
+
+- "Not out yet" is a poster badge now (amber, top left; "Upcoming" in English, which fits the 8-character limit) instead of a caption, on lists and on the details page. The details page keeps the release date as its caption ("Out 2027-03-05"). A title with no date that Seerr calls planned or in production gets the badge without a date.
+
 ## 0.5.4
 
 - Titles that are not out yet are marked "Not out yet" in the lists (release date later than today, UTC; a missing or unreadable date is not guessed) and on the details page, which also knows Seerr's production status (Planned, In Production, Post Production) and shows the date. On a person's page the mark follows the role ("Role · Not out yet"). The request button is unchanged.

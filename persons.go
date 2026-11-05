@@ -91,7 +91,8 @@ func (pc *pageCtx) personPage(id int) *pageDef {
 		ws := make([]*pluginv1.Work, 0, to-from)
 		for _, c := range list[from:to] {
 			if w := toWork(c.r, c.r.MediaType); w != nil {
-				w.Caption = truncate(joinCaption(c.caption, releaseCaption(c.r, c.r.MediaType, pc.t)), 64)
+				w.Caption = truncate(c.caption, 64)
+				w.Badges = releaseBadges(c.r, c.r.MediaType, pc.t)
 				ws = append(ws, w)
 			}
 		}
@@ -240,15 +241,4 @@ func sortCredits(list []credit) {
 		}
 		return a > b
 	})
-}
-
-// joinCaption puts the parts that are there together with a dot.
-func joinCaption(parts ...string) string {
-	var out []string
-	for _, p := range parts {
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	return strings.Join(out, " · ")
 }
