@@ -1,0 +1,34 @@
+# Design notes
+
+## Keys and IDs
+
+A work's key is `movie:<TMDB number>` or `tv:<TMDB number>`. The plugin sends only the `tmdb` provider ID in lists, and adds `imdb` (and `tvdb` for series) in the details. The one declared action, `request`, requires `tmdb`.
+
+## Status mapping
+
+Seerr's media status: 1 unknown, 2 pending, 3 processing, 4 partly available, 5 available, 6 blocklisted, 7 deleted.
+
+| Seerr | Work state | Request offered |
+| --- | --- | --- |
+| 1, 7 or missing | none | yes |
+| 2 | pending | no |
+| 3 | processing | no |
+| 4 | partial | series: the seasons not yet available or requested |
+| 5 | available | no |
+| 6 | none | no |
+
+Request status: 1 pending, 2 approved, 3 declined, 4 failed. When the media status is 1, 7 or missing, an approved request counts as processing and a pending one as pending. A declined or failed request counts only for the member who made it (found through the Seerr user); the state is then declined or failed and the button reads "Ask again". 4K requests are ignored.
+
+For a series, a season is blocked when Seerr lists it as pending, processing, partly available or available, or when an open request names it. Specials (season 0) can be chosen but are not selected by default.
+
+## Calls
+
+- Badges (`include_actions` false): one `GET /movie/{id}` or `/tv/{id}` per title, at most six at a time, kept for ten seconds. No user lookup unless a title has a declined or failed request.
+- Opening a title (`include_actions` true): the same call without the cache, and the offer with the season question.
+- Request: user lookup (cached five minutes per member code), a fresh detail check, `POST /request` with `X-Api-Key` and `X-API-User`, a fresh detail again for the new state.
+- Refusals, not errors: no Seerr account (with a link), 403 with "quota" in the message, any other 403, 409, nothing left to request, no valid season. A rejected API key (401) is `FAILED_PRECONDITION`, an unreachable Seerr is `UNAVAILABLE`.
+
+## Not done
+
+- No 4K requests, no server or quality profile choice, no cancelling or approving requests: those stay in Seerr.
+- Search cannot be filtered by type in Seerr, so a page filtered to one type may hold fewer than 20 titles.

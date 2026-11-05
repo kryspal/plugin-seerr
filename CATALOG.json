@@ -1,0 +1,20 @@
+{
+  "name": "Seerr",
+  "nameI18n": {
+    "zh-TW": "Seerr",
+    "zh-CN": "Seerr"
+  },
+  "description": "Shows what a Seerr server offers on the Discover page and lets members request titles through Seerr. Seerr keeps the requests, approvals and quotas.",
+  "descriptionI18n": {
+    "zh-TW": "在「發現」頁顯示 Seerr 伺服器提供的內容，並讓成員透過 Seerr 提出請求。請求、審批與配額都由 Seerr 管理。",
+    "zh-CN": "在“发现”页显示 Seerr 服务器提供的内容，并让成员通过 Seerr 提出请求。请求、审批与配额都由 Seerr 管理。"
+  },
+  "owner": "Kryspal Media",
+  "minServer": "0.9.15",
+  "homepage": "https://github.com/kryspal/plugin-seerr",
+  "capabilities": [
+    "discover.source",
+    "work.action",
+    "plugin.checks"
+  ]
+}
