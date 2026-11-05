@@ -41,6 +41,7 @@ const (
 	backdropSize = "w1280"
 	cardSize     = "w780"
 	logoSize     = "w185"
+	cardLogoSize = "w500"
 	profileSize  = "w185"
 )
 

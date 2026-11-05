@@ -100,7 +100,7 @@ func TestHomePage(t *testing.T) {
 	}
 	studios := rowByID(t, pg, "studios")
 	if studios.GetStyle() != pluginv1.DiscoverRowStyle_DISCOVER_ROW_STYLE_CARDS || len(studios.GetCards()) != len(studioWall) || studios.GetCards()[0].GetRef() != "studio:2" ||
-		!strings.HasSuffix(studios.GetCards()[0].GetImageUrl(), studioWall[0].logo) || len(studios.GetWorks()) != 0 {
+		!strings.HasSuffix(studios.GetCards()[0].GetImageUrl(), "/w500"+studioWall[0].logo) || studios.GetCards()[0].GetImageKind() != pluginv1.DiscoverCardImageKind_DISCOVER_CARD_IMAGE_KIND_LOGO || len(studios.GetWorks()) != 0 {
 		t.Errorf("studios = %v", studios)
 	}
 	if n := rowByID(t, pg, "networks"); n.GetCards()[0].GetRef() != "network:213" {
@@ -256,6 +256,9 @@ func TestGenresTabIsAWallOfCards(t *testing.T) {
 	}
 	if c := r.GetCards()[0]; c.GetTitle() != "动作" || c.GetRef() != "genre:movie:28" || c.GetImageUrl() != "https://image.tmdb.org/t/p/w780/g28.jpg" {
 		t.Errorf("card = %v", c)
+	}
+	if r.GetCards()[0].GetImageKind() != pluginv1.DiscoverCardImageKind_DISCOVER_CARD_IMAGE_KIND_COVER {
+		t.Errorf("a genre card is not a cover")
 	}
 	if c := r.GetCards()[1]; c.GetImageUrl() != "" {
 		t.Errorf("a genre without a backdrop has an image: %v", c)

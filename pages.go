@@ -347,9 +347,10 @@ func (pc *pageCtx) trending(ctx context.Context, pageNo int) (page, error) {
 func wallCards(entries []wallEntry, kind string) []*pluginv1.DiscoverCard {
 	out := make([]*pluginv1.DiscoverCard, 0, len(entries))
 	for _, e := range entries {
-		c := &pluginv1.DiscoverCard{Title: e.name, Ref: idRef(kind, e.id)}
+		// A logo is shown whole, not cropped to the card; w500 keeps the logo's own shape without enlarging a narrow picture.
+		c := &pluginv1.DiscoverCard{Title: e.name, Ref: idRef(kind, e.id), ImageKind: pluginv1.DiscoverCardImageKind_DISCOVER_CARD_IMAGE_KIND_LOGO}
 		if e.logo != "" {
-			c.ImageUrl = imageBase + logoSize + e.logo
+			c.ImageUrl = imageBase + cardLogoSize + e.logo
 		}
 		out = append(out, c)
 	}
@@ -378,7 +379,7 @@ func (pc *pageCtx) genreWalls() *pageDef {
 			}
 			out := make([]*pluginv1.DiscoverCard, 0, len(cards))
 			for _, c := range cards {
-				out = append(out, &pluginv1.DiscoverCard{Title: truncate(c.Name, 64), ImageUrl: c.Backdrop, Ref: genreRef(media, c.ID)})
+				out = append(out, &pluginv1.DiscoverCard{Title: truncate(c.Name, 64), ImageUrl: c.Backdrop, Ref: genreRef(media, c.ID), ImageKind: pluginv1.DiscoverCardImageKind_DISCOVER_CARD_IMAGE_KIND_COVER})
 			}
 			return &pluginv1.DiscoverRow{Id: id, Title: pc.t.T(titleKey), Style: pluginv1.DiscoverRowStyle_DISCOVER_ROW_STYLE_CARDS, Cards: out}, nil
 		}}

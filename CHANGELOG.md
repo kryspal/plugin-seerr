@@ -2,6 +2,11 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.5.1
+
+- Studio and network cards are marked as logos (shown whole, not cropped) and use the wider w500 logo; genre cards stay covers.
+- A row asked alone carries the page header too (person, studio, network, genre), so a page can say where the row is. Headers never have a backdrop.
+
 ## 0.5.0
 
 - Follows the pages protocol (`GetDiscoverPage`): tabs Home, Movies, Series and Genres; a hero row of trending titles; walls of genres, studios and networks as cards; pages for a genre, a studio, a network and a person; recommendations on the details page.
