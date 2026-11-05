@@ -2,6 +2,10 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.5.9
+
+- The row of networks reads "Broadcast platforms" in Simplified and Traditional Chinese (the same two characters pair in both), replacing the 0.5.8 wording. English stays "Networks".
+
 ## 0.5.8
 
 - The row of networks is no longer called "TV networks" in Chinese: it now reads as streaming platforms in Simplified and Traditional Chinese. English stays "Networks".
