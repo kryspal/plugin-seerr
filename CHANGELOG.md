@@ -2,6 +2,12 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.5.0
+
+- Follows the pages protocol (`GetDiscoverPage`): tabs Home, Movies, Series and Genres; a hero row of trending titles; walls of genres, studios and networks as cards; pages for a genre, a studio, a network and a person; recommendations on the details page.
+- Details gain the tagline, genres, companies, the director or creators and the cast with their pictures, and trailers as links. Details stay in the member's language; the lists stay in Seerr's.
+- The filters and the sort are declared in the page answer. `ListDiscoverRows` and the discover kinds are gone.
+
 ## 0.4.0
 
 - Every list (trending, popular movies, popular series, filtered lists) shows the titles, overviews and posters Seerr gives, in Seerr's language setting, so one page has one language. The per-title lookups, the background lookups, the language probe and their caches are gone, and trending sends no `language`. Genre names are as Seerr gives them (no Simplified to Traditional conversion).

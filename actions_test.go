@@ -407,7 +407,7 @@ func TestBadgesUseWhatTheListsSaid(t *testing.T) {
 	 {"id":700,"mediaType":"movie","title":"C"},
 	 {"id":701,"mediaType":"movie","title":"D","mediaInfo":{"status":1}}]}`
 	f.details["movie:701"] = movieWith(`{"status":1,"requests":[{"status":3,"requestedBy":{"id":5}}]}`)
-	if _, err := p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{Type: pluginv1.ItemType_ITEM_TYPE_MOVIE, RowId: "popular_movies", Languages: langs("en")}); err != nil {
+	if _, err := p.GetDiscoverPage(ctx, &pluginv1.GetDiscoverPageRequest{Ref: "movies", RowId: "popular_movies", Languages: langs("en")}); err != nil {
 		t.Fatal(err)
 	}
 	ref := func(r string, ty pluginv1.ItemType, id string) *pluginv1.WorkRef {

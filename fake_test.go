@@ -24,6 +24,8 @@ type fakeSeerr struct {
 	list string
 	// genres, when set, replaces the genre list.
 	genres string
+	// credits, when set, replaces the credits of person 6384.
+	credits string
 	// requests answers GET /request.
 	requests string
 	// lookupDelay slows the details asked in a language, as a cold Seerr is.
@@ -64,6 +66,27 @@ func (f *fakeSeerr) handler(t *testing.T) http.Handler {
 				return
 			}
 			_, _ = w.Write([]byte(`[{"id":28,"name":"动作"},{"id":878,"name":"科幻"},{"id":35,"name":"Comedy"}]`))
+		case path == "/discover/genreslider/movie", path == "/discover/genreslider/tv":
+			_, _ = w.Write([]byte(`[{"id":28,"name":"动作","backdrops":["/g28.jpg","/x.jpg"]},{"id":35,"name":"Comedy","backdrops":[]}]`))
+		case path == "/studio/79":
+			_, _ = w.Write([]byte(`{"id":79,"name":"Village Roadshow Pictures","description":"A studio","headquarters":"Burbank, CA","originCountry":"US","logoPath":"/s79.png"}`))
+		case path == "/network/174":
+			_, _ = w.Write([]byte(`{"id":174,"name":"AMC","originCountry":"US","logoPath":"/n174.png"}`))
+		case path == "/person/6384":
+			_, _ = w.Write([]byte(`{"id":6384,"name":"Keanu","biography":"Bio","birthday":"1964-09-02","deathday":null,"placeOfBirth":"Beirut","profilePath":"/k.jpg"}`))
+		case path == "/person/6384/combined_credits":
+			_, _ = w.Write([]byte(f.personCredits()))
+		case path == "/person/7/combined_credits":
+			_, _ = w.Write([]byte(`{"cast":[],"crew":[
+			 {"id":603,"mediaType":"movie","title":"Movie A","releaseDate":"1999-03-30","job":"Producer"},
+			 {"id":603,"mediaType":"movie","title":"Movie A","releaseDate":"1999-03-30","job":"Director"},
+			 {"id":1396,"mediaType":"tv","name":"Series B","job":"Writer"}]}`))
+		case path == "/person/7":
+			_, _ = w.Write([]byte(`{"id":7,"name":"Maker"}`))
+		case strings.HasPrefix(path, "/person/"):
+			http.Error(w, `{"message":"Unable to retrieve person."}`, http.StatusInternalServerError)
+		case strings.HasSuffix(path, "/recommendations"):
+			_, _ = w.Write([]byte(f.listBody()))
 		case path == "/request" && r.Method == http.MethodGet:
 			if f.requests == "" {
 				_, _ = w.Write([]byte(`{"pageInfo":{"pages":0,"pageSize":20,"results":0,"page":1},"results":[]}`))
@@ -169,4 +192,19 @@ func (f *fakeSeerr) listBody() string {
 		return f.list
 	}
 	return listJSON
+}
+
+// personCredits is the answer for person 6384: Seerr's order is not by date, and it lists talk-show appearances.
+func (f *fakeSeerr) personCredits() string {
+	if f.credits != "" {
+		return f.credits
+	}
+	return `{"id":6384,"cast":[
+	 {"id":10,"mediaType":"movie","title":"Old","releaseDate":"1991-02-01","character":"Ted","genreIds":[35]},
+	 {"id":11,"mediaType":"movie","title":"Undated","character":"Nobody","genreIds":[]},
+	 {"id":12,"mediaType":"tv","name":"Late Show","firstAirDate":"2003-01-26","character":"Self","genreIds":[10767],"episodeCount":3},
+	 {"id":13,"mediaType":"movie","title":"New","releaseDate":"2021-12-22","character":"Neo","genreIds":[878],"mediaInfo":{"status":5}},
+	 {"id":14,"mediaType":"tv","name":"Show","firstAirDate":"2015-01-01","character":"Himself","genreIds":[18]},
+	 {"id":99,"mediaType":"person","name":"x"}
+	],"crew":[{"id":15,"mediaType":"movie","title":"Made","releaseDate":"2000-01-01","job":"Producer"}]}`
 }

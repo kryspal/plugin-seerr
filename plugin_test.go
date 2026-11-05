@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"net/url"
 	"strings"
 	"testing"
 
@@ -93,72 +92,6 @@ func TestTMDBLanguage(t *testing.T) {
 	}
 }
 
-func TestListRows(t *testing.T) {
-	p, f := newTestPlugin(t)
-	resp, err := p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{Languages: langs("zh-TW")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var ids []string
-	for _, r := range resp.GetRows() {
-		ids = append(ids, r.GetId())
-	}
-	if got := strings.Join(ids, ","); got != "trending,popular_movies,popular_series" {
-		t.Fatalf("rows = %s", got)
-	}
-	r := resp.GetRows()[0]
-	if r.GetTitle() != "熱門趨勢" || r.GetNextPageToken() != "2" {
-		t.Errorf("row = %q token %q", r.GetTitle(), r.GetNextPageToken())
-	}
-	if len(r.GetWorks()) != 2 { // the person and the title-less movie are dropped
-		t.Fatalf("works = %d, want 2", len(r.GetWorks()))
-	}
-	m := r.GetWorks()[0]
-	if m.GetKey() != "movie:603" || m.GetType() != pluginv1.ItemType_ITEM_TYPE_MOVIE || m.GetYear() != 1999 || m.GetProviderIds()["tmdb"] != "603" ||
-		m.GetPosterUrl() != "https://image.tmdb.org/t/p/w500/p.jpg" || m.GetBackdropUrl() != "https://image.tmdb.org/t/p/w1280/b.jpg" {
-		t.Errorf("movie = %v", m)
-	}
-	if s := r.GetWorks()[1]; s.GetKey() != "tv:1396" || s.GetType() != pluginv1.ItemType_ITEM_TYPE_SERIES || s.GetOriginalTitle() != "Series B orig" {
-		t.Errorf("series = %v", s)
-	}
-	if q := f.last(t).query; !strings.Contains(q, "language=zh-TW") {
-		t.Errorf("language not sent: %s", q)
-	}
-}
-
-func TestListRowsTypeFilterAndPaging(t *testing.T) {
-	p, f := newTestPlugin(t)
-	resp, err := p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{Type: pluginv1.ItemType_ITEM_TYPE_SERIES})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var ids []string
-	for _, r := range resp.GetRows() {
-		ids = append(ids, r.GetId())
-		for _, w := range r.GetWorks() {
-			if w.GetType() != pluginv1.ItemType_ITEM_TYPE_SERIES {
-				t.Errorf("row %s holds %v", r.GetId(), w.GetKey())
-			}
-		}
-	}
-	if got := strings.Join(ids, ","); got != "trending,popular_series" {
-		t.Errorf("rows = %s", got)
-	}
-	next, err := p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{RowId: "popular_series", PageToken: "3"})
-	if err != nil || len(next.GetRows()) != 1 {
-		t.Fatalf("next page: %v %v", next, err)
-	}
-	if q := f.last(t); q.path != "/api/v1/discover/tv" || !strings.Contains(q.query, "page=3") {
-		t.Errorf("last request = %+v", q)
-	}
-	if _, err := p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{RowId: "nope"}); status.Code(err) != codes.NotFound {
-		t.Errorf("unknown row: %v", err)
-	}
-	if _, err := p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{RowId: "trending", PageToken: "x"}); status.Code(err) != codes.InvalidArgument {
-		t.Errorf("bad token: %v", err)
-	}
-}
-
 func TestSearch(t *testing.T) {
 	p, f := newTestPlugin(t)
 	resp, err := p.SearchWorks(ctx, &pluginv1.SearchWorksRequest{Query: " a b ", PageToken: "2", Type: pluginv1.ItemType_ITEM_TYPE_MOVIE})
@@ -240,52 +173,5 @@ func TestRunCheck(t *testing.T) {
 	}
 	if _, err := p.RunCheck(ctx, &pluginv1.RunCheckRequest{Id: "other"}); status.Code(err) != codes.InvalidArgument {
 		t.Errorf("unknown check: %v", err)
-	}
-}
-
-// Seerr v3.5.1 treats language on /discover/movies and /discover/tv as an original-language filter and titles those lists in its own
-// language setting. The lists are shown as Seerr gives them: no display language is sent to any list, and no title is looked up.
-func TestListsAreSeerrsOwnText(t *testing.T) {
-	for _, lang := range []string{"zh-CN", "zh-TW", "pt-BR", "en-GB", "ja", "zh", ""} {
-		t.Run(lang, func(t *testing.T) {
-			p, f := newTestPlugin(t)
-			f.details["movie:603"] = `{"id":603,"title":"Localized A"}`
-			resp, err := p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{Languages: langs(lang)})
-			if err != nil || len(resp.GetRows()) != 3 {
-				t.Fatalf("rows in %q: %v %v", lang, resp, err)
-			}
-			for _, row := range resp.GetRows() {
-				if len(row.GetWorks()) == 0 || row.GetWorks()[0].GetTitle() == "Localized A" {
-					t.Errorf("row %s works = %v, want Seerr's own text", row.GetId(), row.GetWorks())
-				}
-			}
-			if n := f.count("/api/v1/movie/") + f.count("/api/v1/tv/"); n != 0 {
-				t.Errorf("%d detail lookups for a list", n)
-			}
-			for _, r := range f.reqs {
-				if !strings.HasPrefix(r.path, "/api/v1/discover/") {
-					continue
-				}
-				v, _ := url.ParseQuery(r.query)
-				if l := v.Get("language"); l != "" && l != "all" {
-					t.Errorf("a display language was sent to %s?%s", r.path, r.query)
-				}
-				if strings.HasSuffix(r.path, "/trending") && v.Has("language") {
-					t.Errorf("trending sent a language: %s", r.query)
-				}
-			}
-		})
-	}
-}
-
-func TestEveryRowFillsInEveryLanguage(t *testing.T) {
-	for _, lang := range []string{"", "en", "en-GB", "zh-CN", "zh-TW", "pt-BR", "ja"} {
-		p, f := newTestPlugin(t)
-		f.details["movie:603"] = movieWith("")
-		f.details["tv:1396"] = tvWith("")
-		resp, err := p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{Languages: langs(lang)})
-		if err != nil || len(resp.GetRows()) != 3 {
-			t.Errorf("rows in %q: %d (%v), want 3", lang, len(resp.GetRows()), err)
-		}
 	}
 }

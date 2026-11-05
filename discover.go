@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"log/slog"
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"unicode/utf8"
@@ -55,132 +53,7 @@ func itemType(kind string) pluginv1.ItemType {
 	return pluginv1.ItemType_ITEM_TYPE_MOVIE
 }
 
-// A row is one list of the discover page. path is the Seerr endpoint; trending also takes the media type.
-type rowDef struct {
-	id       string
-	titleKey string
-	path     string
-	kind     string // movie or tv: the row only exists for that type; empty: both
-	trending bool
-	// filterable: the row honors the genre, period and sort choices (its filter_keys).
-	filterable bool
-}
-
-var rowDefs = []rowDef{
-	{id: "trending", titleKey: "rowTrending", path: "/discover/trending", trending: true},
-	{id: "popular_movies", titleKey: "rowPopularMovies", path: "/discover/movies", kind: kindMovie, filterable: true},
-	{id: "popular_series", titleKey: "rowPopularSeries", path: "/discover/tv", kind: kindTV, filterable: true},
-}
-
-func (p *plugin) rowsFor(kind string) []rowDef {
-	var out []rowDef
-	for _, r := range rowDefs {
-		if kind == "" || r.kind == "" || r.kind == kind {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
-func first(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
-}
-
-// filterKeys are the filter and sort keys the row honors; none for a row that cannot be filtered.
-func (d rowDef) filterKeys() []string {
-	if !d.filterable {
-		return nil
-	}
-	return []string{keyGenre, keyPeriod, keyLang, keyRating, keySort}
-}
-
 func language(l *pluginv1.Languages) string { return tmdbLanguage(l.GetLanguage()) }
-
-// ListDiscoverRows returns every row with its first page, or one row from a page token. A row that fails while others work is left out.
-func (p *plugin) ListDiscoverRows(ctx context.Context, req *pluginv1.ListDiscoverRowsRequest) (*pluginv1.ListDiscoverRowsResponse, error) {
-	tg, err := p.api.target()
-	if err != nil {
-		return nil, err
-	}
-	t := messages.For(req.GetLanguages().GetLanguage())
-	kind := kindOf(req.GetType())
-	defs := p.rowsFor(kind)
-	pageNo := 1
-	if id := req.GetRowId(); id != "" {
-		var one []rowDef
-		for _, d := range defs {
-			if d.id == id {
-				one = append(one, d)
-			}
-		}
-		if len(one) == 0 {
-			return nil, sdk.NotFound("unknown row")
-		}
-		defs = one
-		if pageNo, err = parsePage(req.GetPageToken()); err != nil {
-			return nil, err
-		}
-	}
-	rows := make([]*pluginv1.DiscoverRow, len(defs))
-	errs := make([]error, len(defs))
-	var wg sync.WaitGroup
-	for i, d := range defs {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			// The lists carry the titles, overviews and posters Seerr gives (its own language setting). Trending and the popular rows
-			// send no language: on /discover/movies and /discover/tv it would be an original-language filter.
-			q := url.Values{"page": {strconv.Itoa(pageNo)}}
-			title := t.T(d.titleKey)
-			if d.filterable {
-				sortValue := applyFilters(q, d.kind, selected(req.GetSelections()), time.Now().UTC().Format("2006-01-02"))
-				if sortValue != defaultSort {
-					title = t.T(map[string]string{"newest": "rowNewest", "top_rated": "rowTop"}[sortValue] + map[string]string{kindMovie: "Movies", kindTV: "Series"}[d.kind])
-				}
-			}
-			if d.trending {
-				q.Set("mediaType", map[string]string{"": "all", kindMovie: kindMovie, kindTV: kindTV}[kind])
-			}
-			pg, err := p.page(ctx, tg, d.path, q)
-			if err != nil {
-				errs[i] = err
-				return
-			}
-			keys := d.filterKeys()
-			if gs, _ := p.genres.list(ctx, p, tg, d.kind, req.GetLanguages().GetLanguage()); d.filterable && len(gs) == 0 {
-				keys = []string{keyPeriod, keyLang, keyRating, keySort} // no genre list from Seerr: the filter is not declared either
-			}
-			rows[i] = &pluginv1.DiscoverRow{Id: d.id, Title: title, FilterKeys: keys, Works: works(pg.Results, first(d.kind, kind)), NextPageToken: nextToken(pg)}
-		}()
-	}
-	wg.Wait()
-	resp := &pluginv1.ListDiscoverRowsResponse{}
-	var firstErr error
-	for i, r := range rows {
-		switch {
-		case errs[i] != nil && ctx.Err() != nil:
-			// the member left or changed the filter: not a failure of the row
-			slog.Debug("discover row cancelled", "row", defs[i].id)
-		case errs[i] != nil:
-			slog.Warn("discover row failed", "row", defs[i].id, "error", errs[i].Error())
-			if firstErr == nil {
-				firstErr = errs[i]
-			}
-		case len(r.Works) > 0:
-			resp.Rows = append(resp.Rows, r)
-		case ctx.Err() != nil:
-		default:
-			slog.Warn("discover row is empty", "row", defs[i].id, "page", pageNo)
-		}
-	}
-	if len(resp.Rows) == 0 && firstErr != nil {
-		return nil, firstErr
-	}
-	return resp, nil
-}
 
 // SearchWorks searches Seerr. It cannot filter by type, so a page may hold fewer works than Seerr's page size.
 func (p *plugin) SearchWorks(ctx context.Context, req *pluginv1.SearchWorksRequest) (*pluginv1.SearchWorksResponse, error) {
@@ -244,7 +117,99 @@ func (p *plugin) GetWork(ctx context.Context, req *pluginv1.GetWorkRequest) (*pl
 				EpisodeCount: int32(s.EpisodeCount), Year: year(s.AirDate)})
 		}
 	}
+	details(w, r, kind, messages.For(req.GetLanguages().GetLanguage()))
 	return w, nil
+}
+
+// details fills what only the detail page shows: the tagline, genres, companies, credits, the related page and the trailers.
+func details(w *pluginv1.Work, r result, kind string, t i18n.Translator) {
+	w.Tagline = truncate(strings.TrimSpace(r.Tagline), pluginapi.MaxWorkTagline)
+	for _, g := range r.Genres {
+		if name := strings.TrimSpace(g.Name); g.ID > 0 && name != "" && len(w.Genres) < pluginapi.MaxWorkGenres {
+			w.Genres = append(w.Genres, &pluginv1.WorkRefLink{Text: truncate(name, pluginapi.MaxWorkGenreName), Ref: genreRef(kind, g.ID)})
+		}
+	}
+	// Networks first. Seerr's studio pages list movies only, so the production companies of a series are plain text.
+	seen := map[string]bool{}
+	company := func(n named, ref string) {
+		name := strings.TrimSpace(n.Name)
+		if name == "" || seen[name] || len(w.Companies) >= pluginapi.MaxWorkCompanies {
+			return
+		}
+		seen[name] = true
+		l := &pluginv1.WorkRefLink{Text: truncate(name, pluginapi.MaxWorkCompanyName)}
+		if n.ID > 0 {
+			l.Ref = ref
+		}
+		w.Companies = append(w.Companies, l)
+	}
+	for _, n := range r.Networks {
+		company(n, idRef(refNetwork, n.ID))
+	}
+	for _, n := range r.ProductionCompanies {
+		ref := ""
+		if kind == kindMovie {
+			ref = idRef(refStudio, n.ID)
+		}
+		company(n, ref)
+	}
+	w.Credits = credits(r, kind)
+	w.RelatedRef = refRec + ":" + kind + ":" + strconv.Itoa(r.ID)
+	for _, v := range r.RelatedVideos {
+		if len(w.ExternalLinks) >= 2 {
+			break
+		}
+		if v.Type != "Trailer" || !strings.HasPrefix(v.URL, "https://") {
+			continue
+		}
+		label := truncate(strings.TrimSpace(v.Name), pluginapi.MaxWorkLinkLabel)
+		if label == "" {
+			label = t.T("trailer")
+		}
+		w.ExternalLinks = append(w.ExternalLinks, &pluginv1.ExternalLink{Url: v.URL, Label: label})
+	}
+}
+
+// credits lists the people of a title, the ones that matter most first: the directors of a movie or the creators of a series, then the cast in
+// the order TMDB gives.
+func credits(r result, kind string) []*pluginv1.WorkCredit {
+	var out []*pluginv1.WorkCredit
+	seen := map[int]bool{}
+	add := func(p person, k pluginv1.WorkCreditKind, role string) {
+		name := strings.TrimSpace(p.Name)
+		if name == "" || p.ID <= 0 || seen[p.ID] || len(out) >= pluginapi.MaxWorkCredits {
+			return
+		}
+		seen[p.ID] = true
+		c := &pluginv1.WorkCredit{Name: truncate(name, pluginapi.MaxWorkCreditText), Kind: k, Role: truncate(strings.TrimSpace(role), pluginapi.MaxWorkCreditText), Ref: idRef(refPerson, p.ID)}
+		if pth := first(p.ProfilePath, p.ProfileRaw); pth != "" {
+			c.ImageUrl = imageBase + profileSize + pth
+		}
+		out = append(out, c)
+	}
+	if kind == kindTV {
+		for _, p := range r.CreatedBy {
+			add(p, pluginv1.WorkCreditKind_WORK_CREDIT_KIND_CREATOR, "")
+		}
+	}
+	directors := 0
+	for _, p := range r.Credits.Crew {
+		if p.Job == "Director" && directors < 3 {
+			directors++
+			add(p, pluginv1.WorkCreditKind_WORK_CREDIT_KIND_DIRECTOR, "")
+		}
+	}
+	for _, p := range r.Credits.Cast {
+		add(p, pluginv1.WorkCreditKind_WORK_CREDIT_KIND_ACTOR, p.Character)
+	}
+	return out
+}
+
+func first(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // contentRating picks the United States certification, the one Seerr always has, else the first one.
@@ -310,6 +275,9 @@ func works(rs []result, only string) []*pluginv1.Work {
 	out := make([]*pluginv1.Work, 0, len(rs))
 	for _, r := range rs {
 		kind := r.MediaType
+		if kind == "" {
+			kind = only // Seerr's lists of one type do not always say it
+		}
 		if kind != kindMovie && kind != kindTV || (only != "" && kind != only) {
 			continue
 		}

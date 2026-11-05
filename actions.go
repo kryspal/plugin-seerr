@@ -350,7 +350,7 @@ func (p *plugin) RunWorkAction(ctx context.Context, req *pluginv1.RunWorkActionR
 	}
 	if uid == 0 {
 		return &pluginv1.RunWorkActionResponse{Refused: true, Message: t.T("refNoAccount"),
-			Link: &pluginv1.WorkActionLink{Url: linkURL(tg), Label: t.T("linkOpen")}}, nil
+			Link: &pluginv1.ExternalLink{Url: linkURL(tg), Label: t.T("linkOpen")}}, nil
 	}
 	r, err := p.detail(ctx, tg, kind, id, true)
 	if err != nil {

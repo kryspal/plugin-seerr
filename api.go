@@ -39,6 +39,9 @@ const (
 	imageBase    = "https://image.tmdb.org/t/p/"
 	posterSize   = "w500"
 	backdropSize = "w1280"
+	cardSize     = "w780"
+	logoSize     = "w185"
+	profileSize  = "w185"
 )
 
 // api is the Seerr client. The address and key are replaced by Configure; calls in flight keep the pair they started with.
@@ -89,15 +92,25 @@ func (a *api) get(ctx context.Context, t target, path string, q url.Values, out 
 
 // getAs is get made for a Seerr user (X-API-User): Seerr then answers with what that user may see.
 func (a *api) getAs(ctx context.Context, t target, userID int, path string, q url.Values, out any) error {
+	resp, err := a.fetch(ctx, t, userID, path, q)
+	if err != nil {
+		return err
+	}
+	return decode(resp, out)
+}
+
+// fetch makes the GET and returns the answer whatever its status.
+func (a *api) fetch(ctx context.Context, t target, userID int, path string, q url.Values) (httpclient.Response, error) {
 	// Seerr wants a space as %20; url.Values.Encode writes +, which Seerr's /search answers with 400.
 	u := t.base + apiPath + path
 	if len(q) > 0 {
 		u += "?" + strings.ReplaceAll(q.Encode(), "+", "%20")
 	}
-	resp, err := a.c.Do(ctx, httpclient.Request{URL: u, Header: header(t, userID)})
-	if err != nil {
-		return err
-	}
+	return a.c.Do(ctx, httpclient.Request{URL: u, Header: header(t, userID)})
+}
+
+// decode maps the status of an answer and decodes a 2xx body into out.
+func decode(resp httpclient.Response, out any) error {
 	if err := statusError(resp); err != nil {
 		return err
 	}
@@ -181,6 +194,44 @@ type result struct {
 		AirDate      string `json:"airDate"`
 	} `json:"seasons"`
 	MediaInfo *mediaInfo `json:"mediaInfo"`
+
+	// Credits lists (/person/{id}/combined_credits).
+	Character string `json:"character"`
+	Job       string `json:"job"`
+	GenreIDs  []int  `json:"genreIds"`
+
+	// Details only (/movie/{id}, /tv/{id}).
+	Tagline             string   `json:"tagline"`
+	Genres              []named  `json:"genres"`
+	Networks            []named  `json:"networks"`
+	ProductionCompanies []named  `json:"productionCompanies"`
+	CreatedBy           []person `json:"createdBy"`
+	Credits             struct {
+		Cast []person `json:"cast"`
+		Crew []person `json:"crew"`
+	} `json:"credits"`
+	RelatedVideos []struct {
+		Site string `json:"site"`
+		Type string `json:"type"`
+		Name string `json:"name"`
+		URL  string `json:"url"`
+	} `json:"relatedVideos"`
+}
+
+// named is a genre, a company or a network.
+type named struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+// person is one entry of a credits list. createdBy gives the picture as profile_path (TMDB's own spelling), the credits as profilePath.
+type person struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Character   string `json:"character"`
+	Job         string `json:"job"`
+	ProfilePath string `json:"profilePath"`
+	ProfileRaw  string `json:"profile_path"`
 }
 
 // mediaInfo is what Seerr knows about a title's availability.

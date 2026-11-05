@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kryspal/plugin-sdk/i18n"
 	pluginv1 "github.com/kryspal/plugin-sdk/pluginv1"
-	"github.com/kryspal/plugin-sdk/sdk"
 )
 
 // The keys of the filters and the sort a kind declares. They are the same for movies and series.
@@ -173,72 +173,39 @@ func applyFilters(q url.Values, kind string, sel map[string][]string, today stri
 	return s.value
 }
 
-// ---- DescribeDiscoverSource ----
+// ---- the controls of a page ----
 
-// DescribeDiscoverSource declares the two types and, for each, the genre and period filters and the sort. The genres come from Seerr and are
-// kept for ten minutes; when Seerr cannot be asked, the last list is used, and without one the description fails (UNAVAILABLE), so the host asks again rather than keep a description without the genre filter.
-func (p *plugin) DescribeDiscoverSource(ctx context.Context, req *pluginv1.DescribeDiscoverSourceRequest) (*pluginv1.DiscoverSourceInfo, error) {
-	tg, err := p.api.target()
-	if err != nil {
-		return nil, err
+// filterOptions declares the filters and the sort of a page of movies or of series: the genres when there are any, then period, original
+// language and rating, and the sort. A page of one genre passes no genres.
+func filterOptions(t i18n.Translator, genres []genre) (filters []*pluginv1.WorkOption, sort *pluginv1.WorkOption) {
+	if len(genres) > 0 {
+		opt := &pluginv1.WorkOption{Key: keyGenre, Label: t.T("filterGenre"), Multiple: true}
+		for _, g := range genres {
+			opt.Choices = append(opt.Choices, &pluginv1.WorkChoice{Value: strconv.Itoa(g.ID), Label: truncate(g.Name, 64)})
+		}
+		filters = append(filters, opt)
 	}
-	tag := req.GetLanguages().GetLanguage()
-	t := messages.For(tag)
-	info := &pluginv1.DiscoverSourceInfo{}
-	kinds := []string{kindMovie, kindTV}
-	genres := make([][]genre, len(kinds))
-	gerrs := make([]error, len(kinds))
-	var wg sync.WaitGroup
-	for i, kind := range kinds {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			genres[i], gerrs[i] = p.genres.list(ctx, p, tg, kind, tag)
-		}()
+	per := &pluginv1.WorkOption{Key: keyPeriod, Label: t.T("filterPeriod")}
+	for _, pd := range periods {
+		label := t.T("periodOlder")
+		if pd.decade > 0 {
+			label = t.Tf("periodDecade", pd.decade)
+		}
+		per.Choices = append(per.Choices, &pluginv1.WorkChoice{Value: pd.value, Label: label})
 	}
-	wg.Wait()
-	for _, e := range gerrs {
-		if e != nil {
-			// A description without the genre filter would be kept by the host until the plugin is reloaded: fail it instead.
-			return nil, sdk.Unavailable("seerr: the genre list is not available")
-		}
+	lang := &pluginv1.WorkOption{Key: keyLang, Label: t.T("filterLanguage")}
+	for _, l := range origLangs {
+		lang.Choices = append(lang.Choices, &pluginv1.WorkChoice{Value: l.value, Label: t.T(l.label)})
 	}
-	for i, kind := range kinds {
-		k := &pluginv1.DiscoverKind{Type: itemType(kind)}
-		if len(genres[i]) > 0 {
-			opt := &pluginv1.WorkOption{Key: keyGenre, Label: t.T("filterGenre"), Multiple: true}
-			for _, g := range genres[i] {
-				opt.Choices = append(opt.Choices, &pluginv1.WorkChoice{Value: strconv.Itoa(g.ID), Label: truncate(g.Name, 64)})
-			}
-			k.Filters = append(k.Filters, opt)
-		}
-		per := &pluginv1.WorkOption{Key: keyPeriod, Label: t.T("filterPeriod")}
-		for _, pd := range periods {
-			label := t.T("periodOlder")
-			if pd.decade > 0 {
-				label = t.Tf("periodDecade", pd.decade)
-			}
-			per.Choices = append(per.Choices, &pluginv1.WorkChoice{Value: pd.value, Label: label})
-		}
-		k.Filters = append(k.Filters, per)
-		lang := &pluginv1.WorkOption{Key: keyLang, Label: t.T("filterLanguage")}
-		for _, l := range origLangs {
-			lang.Choices = append(lang.Choices, &pluginv1.WorkChoice{Value: l.value, Label: t.T(l.label)})
-		}
-		k.Filters = append(k.Filters, lang)
-		rate := &pluginv1.WorkOption{Key: keyRating, Label: t.T("filterRating")}
-		for _, r := range ratings {
-			rate.Choices = append(rate.Choices, &pluginv1.WorkChoice{Value: r, Label: t.Tf("ratingAtLeast", r)})
-		}
-		k.Filters = append(k.Filters, rate)
-		srt := &pluginv1.WorkOption{Key: keySort, Label: t.T("filterSort")}
-		for _, s := range sorts {
-			srt.Choices = append(srt.Choices, &pluginv1.WorkChoice{Value: s.value, Label: t.T(s.label), Selected: s.value == defaultSort})
-		}
-		k.Sort = srt
-		info.Kinds = append(info.Kinds, k)
+	rate := &pluginv1.WorkOption{Key: keyRating, Label: t.T("filterRating")}
+	for _, r := range ratings {
+		rate.Choices = append(rate.Choices, &pluginv1.WorkChoice{Value: r, Label: t.Tf("ratingAtLeast", r)})
 	}
-	return info, nil
+	sort = &pluginv1.WorkOption{Key: keySort, Label: t.T("filterSort")}
+	for _, s := range sorts {
+		sort.Choices = append(sort.Choices, &pluginv1.WorkChoice{Value: s.value, Label: t.T(s.label), Selected: s.value == defaultSort})
+	}
+	return append(filters, per, lang, rate), sort
 }
 
 type genre struct {
@@ -248,10 +215,11 @@ type genre struct {
 
 // genreCache keeps Seerr's genre lists per type and language for ten minutes, and the last good list beyond that.
 type genreCache struct {
-	mu  sync.Mutex
-	m   map[string]genreEntry
-	ttl time.Duration
-	now func() time.Time
+	mu    sync.Mutex
+	m     map[string]genreEntry
+	cards map[string]cardEntry
+	ttl   time.Duration
+	now   func() time.Time
 }
 
 type genreEntry struct {
@@ -260,12 +228,13 @@ type genreEntry struct {
 }
 
 func newGenreCache() *genreCache {
-	return &genreCache{m: map[string]genreEntry{}, ttl: 10 * time.Minute, now: time.Now}
+	return &genreCache{m: map[string]genreEntry{}, cards: map[string]cardEntry{}, ttl: 10 * time.Minute, now: time.Now}
 }
 
 func (c *genreCache) clear() {
 	c.mu.Lock()
 	c.m = map[string]genreEntry{}
+	c.cards = map[string]cardEntry{}
 	c.mu.Unlock()
 }
 
@@ -302,6 +271,60 @@ func (c *genreCache) list(ctx context.Context, p *plugin, tg target, kind, tag s
 	}
 	c.mu.Lock()
 	c.m[key] = genreEntry{at: c.now(), list: out}
+	c.mu.Unlock()
+	return out, nil
+}
+
+// genreCard is one entry of the genre wall: the genre and one of its backdrops.
+type genreCard struct {
+	genre
+	Backdrop string
+}
+
+type cardEntry struct {
+	at   time.Time
+	list []genreCard
+}
+
+// wall returns the genres of a type with a backdrop each (Seerr's genre slider, kept ten minutes). When the slider cannot be read the genres
+// come without pictures; when neither can be read, the error.
+func (c *genreCache) wall(ctx context.Context, p *plugin, tg target, kind, tag string) ([]genreCard, error) {
+	lang := tmdbLanguage(tag)
+	key := kind + ":" + lang
+	c.mu.Lock()
+	e, ok := c.cards[key]
+	c.mu.Unlock()
+	if ok && c.now().Sub(e.at) <= c.ttl {
+		return e.list, nil
+	}
+	var slider []struct {
+		ID        int      `json:"id"`
+		Name      string   `json:"name"`
+		Backdrops []string `json:"backdrops"`
+	}
+	var out []genreCard
+	if err := p.api.get(ctx, tg, "/discover/genreslider/"+kind, url.Values{"language": {lang}}, &slider); err == nil {
+		for _, g := range slider {
+			if name := strings.TrimSpace(g.Name); g.ID > 0 && name != "" {
+				gc := genreCard{genre: genre{ID: g.ID, Name: name}}
+				if len(g.Backdrops) > 0 && g.Backdrops[0] != "" {
+					gc.Backdrop = imageBase + cardSize + g.Backdrops[0]
+				}
+				out = append(out, gc)
+			}
+		}
+	}
+	if len(out) == 0 {
+		gs, err := c.list(ctx, p, tg, kind, tag)
+		if err != nil {
+			return nil, err
+		}
+		for _, g := range gs {
+			out = append(out, genreCard{genre: g})
+		}
+	}
+	c.mu.Lock()
+	c.cards[key] = cardEntry{at: c.now(), list: out}
 	c.mu.Unlock()
 	return out, nil
 }
