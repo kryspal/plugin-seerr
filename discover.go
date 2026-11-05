@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"unicode/utf8"
 
@@ -347,39 +348,46 @@ func nextToken(pg page) string {
 
 // localize gives the titles of a list the member's language. Seerr v3.5.1 titles /discover/movies and /discover/tv in the locale of the Seerr
 // user (the member, through X-API-User, else the server default), and takes no display language there. When that locale is the language wanted
-// the list is as it is; otherwise each title is looked up in the language (Seerr caches these) and a title that cannot be looked up keeps its
-// text.
+// the list is as it is. Otherwise each title is looked up in the language: answers are kept (per title and language), the lookups run a few at a
+// time, and the call waits at most localizeBudget for them. Titles not found by then keep Seerr's text this time and are filled in by lookups
+// that go on in the background, so the next call has them.
 func (p *plugin) localize(ctx context.Context, tg target, rs []result, lang string) []result {
 	if len(rs) == 0 || sameLanguage(p.seerrLocale(ctx, tg), lang) {
 		return rs
 	}
+	var waits []<-chan struct{}
+	for _, r := range rs {
+		if (r.MediaType == kindMovie || r.MediaType == kindTV) && strings.TrimSpace(r.Title+r.Name) != "" {
+			if done := p.titles.start(p, tg, r.MediaType, r.ID, lang); done != nil {
+				waits = append(waits, done)
+			}
+		}
+	}
+	timer := time.NewTimer(p.titles.budget)
+	defer timer.Stop()
+wait:
+	for _, done := range waits {
+		select {
+		case <-done:
+		case <-timer.C:
+			break wait
+		case <-ctx.Done():
+			break wait
+		}
+	}
 	out := make([]result, len(rs))
 	copy(out, rs)
-	var wg sync.WaitGroup
 	for i := range out {
-		kind := out[i].MediaType
-		if kind != kindMovie && kind != kindTV {
-			continue
+		if l, ok := p.titles.get(out[i].MediaType, out[i].ID, lang); ok {
+			out[i].Title, out[i].Name = l.Title, l.Name
+			if l.Overview != "" {
+				out[i].Overview = l.Overview
+			}
+			if l.PosterPath != "" {
+				out[i].PosterPath = l.PosterPath
+			}
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			var d result
-			if err := p.api.get(ctx, tg, "/"+kind+"/"+strconv.Itoa(out[i].ID), url.Values{"language": {lang}}, &d); err != nil {
-				return
-			}
-			if t := d.Title + d.Name; strings.TrimSpace(t) != "" {
-				out[i].Title, out[i].Name = d.Title, d.Name
-			}
-			if d.Overview != "" {
-				out[i].Overview = d.Overview
-			}
-			if d.PosterPath != "" {
-				out[i].PosterPath = d.PosterPath
-			}
-		}()
 	}
-	wg.Wait()
 	return out
 }
 

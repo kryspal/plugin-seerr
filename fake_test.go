@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // fakeSeerr stands in for a Seerr server: it records requests and answers from fixed data. It insists on the API key, as Seerr does.
@@ -19,6 +20,8 @@ type fakeSeerr struct {
 	users      string
 	postStatus int
 	postBody   string
+	// lookupDelay slows the details asked in a language, as a cold Seerr is.
+	lookupDelay time.Duration
 }
 
 type rec struct {
@@ -70,6 +73,9 @@ func (f *fakeSeerr) handler(t *testing.T) http.Handler {
 		case strings.HasPrefix(path, "/discover/"):
 			_, _ = w.Write([]byte(listJSON))
 		case strings.HasPrefix(path, "/movie/"), strings.HasPrefix(path, "/tv/"):
+			if f.lookupDelay > 0 && r.URL.Query().Get("language") != "" {
+				time.Sleep(f.lookupDelay)
+			}
 			key := strings.Replace(strings.TrimPrefix(path, "/"), "/", ":", 1)
 			d, ok := f.details[key]
 			if !ok {
@@ -127,4 +133,17 @@ func newTestPlugin(t *testing.T) (*plugin, *fakeSeerr) {
 	p := newPlugin()
 	p.api.set(srv.URL, "k", "")
 	return p, f
+}
+
+// count is the number of requests whose path starts with prefix.
+func (f *fakeSeerr) count(prefix string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, r := range f.reqs {
+		if strings.HasPrefix(r.path, prefix) {
+			n++
+		}
+	}
+	return n
 }

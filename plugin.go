@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -47,10 +48,11 @@ type plugin struct {
 	cache  *detailCache
 	users  *userCache
 	locale *localeCache
+	titles *titleCache
 }
 
 func newPlugin() *plugin {
-	return &plugin{api: newAPI(), cache: newDetailCache(), users: newUserCache(), locale: &localeCache{now: time.Now}}
+	return &plugin{api: newAPI(), cache: newDetailCache(), users: newUserCache(), locale: &localeCache{now: time.Now}, titles: newTitleCache()}
 }
 
 // Describe declares the two discover capabilities and the connection check. The settings are the address of the Seerr server and its API key.
@@ -102,6 +104,7 @@ func (p *plugin) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	p.cache.clear()
 	p.users.clear()
 	p.locale.clear()
+	p.titles.clear()
 	return resp, nil
 }
 
@@ -275,5 +278,95 @@ func (c *localeCache) put(v string) {
 func (c *localeCache) clear() {
 	c.mu.Lock()
 	c.at = time.Time{}
+	c.mu.Unlock()
+}
+
+// titleCache keeps titles looked up in a language, for a day, and runs those lookups: at most lookupSlots at a time, one per title and
+// language, with their own deadline, so a call that stops waiting does not cancel them.
+type titleCache struct {
+	mu       sync.Mutex
+	m        map[string]titleEntry
+	inflight map[string]chan struct{}
+	slots    chan struct{}
+	budget   time.Duration // how long a call waits for lookups
+	ttl      time.Duration
+	now      func() time.Time
+}
+
+type titleEntry struct {
+	at time.Time
+	r  result
+}
+
+const (
+	lookupSlots    = 8
+	lookupTimeout  = 30 * time.Second
+	localizeBudget = 3 * time.Second
+	titleCacheMax  = 4000
+)
+
+func newTitleCache() *titleCache {
+	return &titleCache{m: map[string]titleEntry{}, inflight: map[string]chan struct{}{}, slots: make(chan struct{}, lookupSlots),
+		budget: localizeBudget, ttl: 24 * time.Hour, now: time.Now}
+}
+
+func titleKey(kind string, id int, lang string) string {
+	return kind + ":" + strconv.Itoa(id) + ":" + lang
+}
+
+func (c *titleCache) get(kind string, id int, lang string) (result, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.m[titleKey(kind, id, lang)]
+	if !ok || c.now().Sub(e.at) > c.ttl {
+		return result{}, false
+	}
+	return e.r, true
+}
+
+// start makes sure a lookup is cached or under way and returns a channel closed when it ends; nil when the answer is already cached.
+func (c *titleCache) start(p *plugin, tg target, kind string, id int, lang string) <-chan struct{} {
+	key := titleKey(kind, id, lang)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.m[key]; ok && c.now().Sub(e.at) <= c.ttl {
+		return nil
+	}
+	if done, ok := c.inflight[key]; ok {
+		return done
+	}
+	done := make(chan struct{})
+	c.inflight[key] = done
+	go func() {
+		defer func() {
+			c.mu.Lock()
+			delete(c.inflight, key)
+			c.mu.Unlock()
+			close(done)
+		}()
+		c.slots <- struct{}{}
+		defer func() { <-c.slots }()
+		ctx, cancel := context.WithTimeout(context.Background(), lookupTimeout)
+		defer cancel()
+		var d result
+		if err := p.api.get(ctx, tg, "/"+kind+"/"+strconv.Itoa(id), url.Values{"language": {lang}}, &d); err != nil {
+			return
+		}
+		if strings.TrimSpace(d.Title+d.Name) == "" {
+			return
+		}
+		c.mu.Lock()
+		if len(c.m) >= titleCacheMax {
+			c.m = map[string]titleEntry{}
+		}
+		c.m[key] = titleEntry{at: c.now(), r: d}
+		c.mu.Unlock()
+	}()
+	return done
+}
+
+func (c *titleCache) clear() {
+	c.mu.Lock()
+	c.m = map[string]titleEntry{}
 	c.mu.Unlock()
 }

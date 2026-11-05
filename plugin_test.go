@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	pluginv1 "github.com/kryspal/plugin-sdk/pluginv1"
 	"google.golang.org/grpc/codes"
@@ -280,5 +282,54 @@ func TestEveryRowFillsInEveryLanguage(t *testing.T) {
 		if err != nil || len(resp.GetRows()) != 3 {
 			t.Errorf("rows in %q: %d (%v), want 3", lang, len(resp.GetRows()), err)
 		}
+	}
+}
+
+func TestLocalizeKeepsTheBudgetAndFillsTheCache(t *testing.T) {
+	p, f := newTestPlugin(t)
+	f.details["movie:603"] = `{"id":603,"title":"Localized A"}`
+	f.details["tv:1396"] = `{"id":1396,"name":"Localized B"}`
+	f.lookupDelay = 400 * time.Millisecond
+	p.titles.budget = 50 * time.Millisecond
+	title := func() string {
+		resp, err := p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{Languages: langs("zh-TW"), RowId: "popular_movies"})
+		if err != nil || len(resp.GetRows()) != 1 {
+			t.Fatalf("rows: %v %v", resp, err)
+		}
+		return resp.GetRows()[0].GetWorks()[0].GetTitle()
+	}
+	start := time.Now()
+	if got := title(); got != "Movie A" {
+		t.Errorf("first call title = %q, want Seerr's text when the lookups are slower than the budget", got)
+	}
+	if d := time.Since(start); d > 300*time.Millisecond {
+		t.Errorf("the call took %v; it must stop waiting at the budget", d)
+	}
+	time.Sleep(900 * time.Millisecond) // the lookups go on in the background
+	before := f.count("/api/v1/movie/")
+	if got := title(); got != "Localized A" {
+		t.Errorf("second call title = %q, want the cached lookup", got)
+	}
+	if after := f.count("/api/v1/movie/"); after != before {
+		t.Errorf("cached titles were looked up again: %d requests", after-before)
+	}
+}
+
+func TestLocalizeAsksOncePerTitleAtATime(t *testing.T) {
+	p, f := newTestPlugin(t)
+	f.details["movie:603"] = `{"id":603,"title":"Localized A"}`
+	f.details["tv:1396"] = `{"id":1396,"name":"Localized B"}`
+	f.lookupDelay = 150 * time.Millisecond
+	var wg sync.WaitGroup
+	for range 5 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{Languages: langs("ja"), RowId: "popular_movies"})
+		}()
+	}
+	wg.Wait()
+	if n := f.count("/api/v1/movie/603"); n != 1 {
+		t.Errorf("movie 603 was looked up %d times by five simultaneous calls, want 1", n)
 	}
 }

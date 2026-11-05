@@ -2,6 +2,10 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.1.4
+
+- The title lookups behind the popular rows are cached per title and language (one day), limited to eight at a time, shared between simultaneous calls, and a call waits at most three seconds for them. A list is back in 4.2 seconds with nothing cached (measured on Seerr v3.5.1) and in 0.03 seconds once cached; titles not looked up in time are filled in in the background.
+
 ## 0.1.3
 
 - Popular movies and popular series come back in every language. Seerr reads the language of those two lists as an original-language filter, so a tag such as zh-CN or pt-BR gave an empty list; the plugin now sends no language there and localizes the titles itself.
