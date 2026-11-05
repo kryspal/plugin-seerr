@@ -333,3 +333,44 @@ func TestLocalizeAsksOncePerTitleAtATime(t *testing.T) {
 		t.Errorf("movie 603 was looked up %d times by five simultaneous calls, want 1", n)
 	}
 }
+
+// Seerr titles the popular lists in its default locale unless the key's own user has one. When that is the member's language no lookup is
+// needed, however the locale is written.
+func TestNoLookupWhenSeerrAlreadyUsesTheLanguage(t *testing.T) {
+	cases := []struct {
+		name, main, own, member string
+		lookups                 bool
+	}{
+		{"same tag", "zh-CN", "", "zh-CN", false},
+		{"Seerr writes zh-Hans", "zh-Hans", "", "zh-CN", false},
+		{"Seerr writes zh", "zh", "", "zh-CN", false},
+		{"member writes zh", "zh-CN", "", "zh", false},
+		{"underscore", "zh_CN", "", "zh-CN", false},
+		{"English regions", "en", "", "en-GB", false},
+		{"own locale wins over the default", "en", "zh-TW", "zh-TW", false},
+		{"own locale differs from the default", "zh-CN", "en", "zh-CN", true},
+		{"Traditional member, Simplified Seerr", "zh-CN", "", "zh-TW", true},
+		{"Simplified member, Traditional Seerr", "zh-TW", "", "zh-CN", true},
+		{"other language", "en", "", "ja", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p, f := newTestPlugin(t)
+			f.mainLocale = c.main
+			if c.own != "" {
+				f.ownLocale = `{"locale":"` + c.own + `"}`
+			} else {
+				f.ownLocale = `{"username":"admin"}`
+			}
+			f.details["movie:603"] = `{"id":603,"title":"Localized A"}`
+			f.details["tv:1396"] = `{"id":1396,"name":"Localized B"}`
+			if _, err := p.ListDiscoverRows(ctx, &pluginv1.ListDiscoverRowsRequest{Type: pluginv1.ItemType_ITEM_TYPE_MOVIE, RowId: "popular_movies", Languages: langs(c.member)}); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(50 * time.Millisecond)
+			if got := f.count("/api/v1/movie/") > 0; got != c.lookups {
+				t.Errorf("lookups = %v, want %v", got, c.lookups)
+			}
+		})
+	}
+}

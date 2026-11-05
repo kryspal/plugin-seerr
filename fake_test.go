@@ -20,6 +20,9 @@ type fakeSeerr struct {
 	users      string
 	postStatus int
 	postBody   string
+	// mainLocale is Seerr's default locale (en when empty); ownLocale is the answer for the key's own user settings.
+	mainLocale string
+	ownLocale  string
 	// requests answers GET /request.
 	requests string
 	// lookupDelay slows the details asked in a language, as a cold Seerr is.
@@ -72,7 +75,9 @@ func (f *fakeSeerr) handler(t *testing.T) http.Handler {
 			}
 			_, _ = w.Write([]byte(searchJSON))
 		case path == "/settings/main":
-			_, _ = w.Write([]byte(`{"locale":"en"}`))
+			_, _ = w.Write([]byte(`{"locale":"` + f.locale() + `"}`))
+		case path == "/user/1/settings/main":
+			_, _ = w.Write([]byte(f.ownLocale))
 		case strings.HasPrefix(path, "/discover/movies"), strings.HasPrefix(path, "/discover/tv"):
 			// Seerr v3.5.1 reads language here as an original-language filter: a tag with a region matches nothing.
 			if l := r.URL.Query().Get("language"); l != "" && l != "all" && strings.Contains(l, "-") {
@@ -156,4 +161,11 @@ func (f *fakeSeerr) count(prefix string) int {
 		}
 	}
 	return n
+}
+
+func (f *fakeSeerr) locale() string {
+	if f.mainLocale == "" {
+		return "en"
+	}
+	return f.mainLocale
 }

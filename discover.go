@@ -401,25 +401,49 @@ func (p *plugin) localize(ctx context.Context, tg target, rs []result, lang stri
 	return out
 }
 
-// seerrLocale is the default locale of the Seerr server (Settings, General), kept for five minutes. It is "" when it cannot be read, which
-// makes every list be looked up in the language wanted.
+// seerrLocale is the locale Seerr titles /discover/movies and /discover/tv in for the plugin's own key: the locale in the settings of the
+// key's user when it has one, else Seerr's default locale (Settings, General; v3.5.1 reads them in that order). It is written the way
+// the member's language is (tmdbLanguage), kept for five minutes, and "" when it cannot be read, which makes every list be looked up in the
+// language wanted.
 func (p *plugin) seerrLocale(ctx context.Context, tg target) string {
 	if l, ok := p.locale.get(); ok {
 		return l
 	}
-	var m struct {
+	var me struct {
+		ID int `json:"id"`
+	}
+	var own struct {
 		Locale string `json:"locale"`
 	}
-	if err := p.api.get(ctx, tg, "/settings/main", nil, &m); err != nil {
+	var def struct {
+		Locale string `json:"locale"`
+	}
+	if err := p.api.get(ctx, tg, "/auth/me", nil, &me); err != nil || me.ID <= 0 {
 		return ""
 	}
-	p.locale.put(m.Locale)
-	return m.Locale
+	_ = p.api.get(ctx, tg, "/user/"+strconv.Itoa(me.ID)+"/settings/main", nil, &own) // no own locale is an answer too
+	loc := strings.TrimSpace(own.Locale)
+	if loc == "" {
+		if err := p.api.get(ctx, tg, "/settings/main", nil, &def); err != nil {
+			return ""
+		}
+		loc = strings.TrimSpace(def.Locale)
+	}
+	if loc == "" {
+		return ""
+	}
+	loc = tmdbLanguage(loc)
+	p.locale.put(loc)
+	return loc
 }
 
 // sameLanguage is true when two language tags give the same titles for practical purposes: equal, or both English (the regions of English
 // differ in few titles).
 func sameLanguage(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	a, b = tmdbLanguage(a), tmdbLanguage(b)
 	if strings.EqualFold(a, b) {
 		return true
 	}

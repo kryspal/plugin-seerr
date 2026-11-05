@@ -2,6 +2,10 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.3.2
+
+- Skips the title lookups whenever Seerr already titles the lists in the member's language: it now compares the locale of the key's own user (which Seerr prefers) as well as Seerr's default, and ignores how the language is written (zh-CN, zh-Hans, zh, zh_CN).
+
 ## 0.3.1
 
 - A list waits 1.5 seconds (not one) for the title lookups: about 0.2 s more, and far more of the first answer is in the member's language.
