@@ -2,6 +2,10 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.5.3
+
+- A member whose Seerr account was deleted no longer takes the whole source offline. Seerr answers 403 to a call made for a user it no longer has; the plugin took that for a refused API key. Now a 403 on a call made for a member drops what is remembered about that member and looks the account up again: none means an empty "my requests" and a refused request with the link to Seerr, and other members and the source are not affected. A refused API key is still reported as one, judged by the lookup made without `X-API-User`.
+
 ## 0.5.2
 
 - The Movies and Series tabs are one row each, titled Movies and Series whatever the sort. The page declares the filters (genre, period, language, rating) and the sort (most popular, newest, top rated); the default is most popular.

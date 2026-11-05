@@ -252,6 +252,12 @@ func (c *userCache) put(member string, id int) {
 	c.m[member] = userEntry{at: c.now(), id: id}
 }
 
+func (c *userCache) forget(member string) {
+	c.mu.Lock()
+	delete(c.m, member)
+	c.mu.Unlock()
+}
+
 func (c *userCache) clear() {
 	c.mu.Lock()
 	c.m = map[string]userEntry{}

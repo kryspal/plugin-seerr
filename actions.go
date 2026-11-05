@@ -281,6 +281,14 @@ func (p *plugin) lazyMember(ctx context.Context, tg target, m *pluginv1.WorkMemb
 	}
 }
 
+// recheckUser drops what is remembered about a member and finds the Seerr user again. It is for a call made for that user that Seerr refused
+// with 403: the account may be gone. 0 means the member has no Seerr account (any more). Only the call without X-API-User can say that the
+// API key itself was refused, and it returns that error.
+func (p *plugin) recheckUser(ctx context.Context, tg target, m *pluginv1.WorkMember) (int, error) {
+	p.users.forget(m.GetId())
+	return p.findUser(ctx, tg, m)
+}
+
 // findUser finds the Seerr user for a member by sign-in name; 0 when there is none or it is not unique. The match goes from the most to the
 // least reliable name: the Jellyfin or Emby sign-in name (a member who signed in to Seerr with their server account), the Seerr user name,
 // the Plex name. Seerr's user search does not look at display names (v3.5.1), so they are not matched.
@@ -378,6 +386,13 @@ func (p *plugin) RunWorkAction(ctx context.Context, req *pluginv1.RunWorkActionR
 	case resp.Status == http.StatusForbidden:
 		if strings.Contains(strings.ToLower(errorMessage(resp.Body)), "quota") {
 			return refuse("refQuota")
+		}
+		// Not a quota: the account may have been deleted since it was remembered.
+		if now, err := p.recheckUser(ctx, tg, req.GetMember()); err != nil {
+			return nil, err
+		} else if now == 0 {
+			return &pluginv1.RunWorkActionResponse{Refused: true, Message: t.T("refNoAccount"),
+				Link: &pluginv1.ExternalLink{Url: linkURL(tg), Label: t.T("linkOpen")}}, nil
 		}
 		return refuse("refForbidden")
 	case resp.Status == http.StatusConflict:

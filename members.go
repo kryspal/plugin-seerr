@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"log/slog"
+	"net/http"
 	"net/url"
 	"strconv"
 	"time"
@@ -49,7 +51,28 @@ func (p *plugin) ListMemberWorks(ctx context.Context, req *pluginv1.ListMemberWo
 		Results []request `json:"results"`
 	}
 	q := url.Values{"take": {strconv.Itoa(memberPage)}, "skip": {strconv.Itoa(skip)}, "sort": {"modified"}, "sortDirection": {"desc"}}
-	if err := p.api.getAs(ctx, tg, uid, "/request", q, &list); err != nil {
+	resp0, err := p.api.fetch(ctx, tg, uid, "/request", q)
+	if err != nil {
+		return nil, err
+	}
+	if resp0.Status == http.StatusForbidden {
+		// Seerr refuses a call made for a user it no longer has (the account was deleted). That concerns this member only, and the API key is
+		// judged by the call without X-API-User (findUser), so a refused key is still reported as one.
+		if uid, err = p.recheckUser(ctx, tg, req.GetMember()); err != nil {
+			return nil, err
+		}
+		if uid == 0 {
+			return resp, nil
+		}
+		if resp0, err = p.api.fetch(ctx, tg, uid, "/request", q); err != nil {
+			return nil, err
+		}
+		if resp0.Status == http.StatusForbidden {
+			slog.Warn("seerr refused to list a member's requests", "member", req.GetMember().GetId())
+			return resp, nil
+		}
+	}
+	if err := decode(resp0, &list); err != nil {
 		return nil, err
 	}
 	tag := req.GetLanguages().GetLanguage()

@@ -24,6 +24,8 @@ type fakeSeerr struct {
 	list string
 	// genres, when set, replaces the genre list.
 	genres string
+	// deleted is a Seerr user ID that no longer exists: a call made for it (X-API-User) is refused with 403, as Seerr does.
+	deleted string
 	// credits, when set, replaces the credits of person 6384.
 	credits string
 	// requests answers GET /request.
@@ -55,6 +57,10 @@ func (f *fakeSeerr) handler(t *testing.T) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		if f.deleted != "" && r.Header.Get("X-API-User") == f.deleted {
+			http.Error(w, `{"message":"Forbidden"}`, http.StatusForbidden)
+			return
+		}
 		switch {
 		case path == "/auth/me":
 			_, _ = w.Write([]byte(`{"id":1}`))
