@@ -66,3 +66,14 @@ Selections become `/discover/movies|tv` parameters (tested on Seerr v3.5.1: `lan
 
 - No 4K requests, no server or quality profile choice, no cancelling or approving requests: those stay in Seerr.
 - Search cannot be filtered by type in Seerr, so a page filtered to one type may hold fewer than 20 titles.
+
+## Notes for authors of other sources
+
+This connector is meant to be read as an example of the pages protocol. What it shows, and what a source of your own can do with the same pieces:
+
+- Tabs are pages with a ref of your own; a tab with one row and declared filters and sort is a filterable grid (Movies, Series here).
+- Walls of entry cards (`CARDS`): cover pictures for things like genres, `LOGO` for logos that must be shown whole (studios, networks here). A card with `PORTRAIT` is for people: a source that lists people (an actor wall of one tab, one `CARDS` row, its own filters and sort) can use it. Seerr has no endpoint that lists people (checked on v3.5.1: no popular or trending people; `/search` finds people by name only), so this connector has no actor wall; a person is reached from a title's credits.
+- A header gives a page its title, a small picture, text and short facts, and never needs a backdrop. A row asked alone carries the header too.
+- Keep lists in one language (the upstream's own) and put the member's language in labels and details.
+- Slow rows can be sent empty with a page token so that they load when they come into view; keep a short cache of your own, because the host does not cache page answers.
+- A ref is untrusted input: parse it strictly and answer NOT_FOUND for anything that does not resolve.
