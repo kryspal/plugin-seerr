@@ -22,6 +22,9 @@ type fakeSeerr struct {
 	postBody   string
 	// list, when set, replaces listJSON as the answer of the list endpoints (discover, trending).
 	list string
+	// sliderFails is how many calls to the genre slider fail with 500 before it answers; sliderEmpty gives genres with no backdrops.
+	sliderFails int
+	sliderEmpty bool
 	// genres, when set, replaces the genre list.
 	genres string
 	// deleted is a Seerr user ID that no longer exists: a call made for it (X-API-User) is refused with 403, as Seerr does.
@@ -73,6 +76,21 @@ func (f *fakeSeerr) handler(t *testing.T) http.Handler {
 			}
 			_, _ = w.Write([]byte(`[{"id":28,"name":"动作"},{"id":878,"name":"科幻"},{"id":35,"name":"Comedy"}]`))
 		case path == "/discover/genreslider/movie", path == "/discover/genreslider/tv":
+			f.mu.Lock()
+			fail := f.sliderFails > 0
+			if fail {
+				f.sliderFails--
+			}
+			empty := f.sliderEmpty
+			f.mu.Unlock()
+			if fail {
+				http.Error(w, `{"message":"boom"}`, http.StatusInternalServerError)
+				return
+			}
+			if empty {
+				_, _ = w.Write([]byte(`[{"id":28,"name":"动作","backdrops":[]},{"id":35,"name":"Comedy","backdrops":[]}]`))
+				return
+			}
 			_, _ = w.Write([]byte(`[{"id":28,"name":"动作","backdrops":["/g28.jpg","/x.jpg"]},{"id":35,"name":"Comedy","backdrops":[]}]`))
 		case path == "/studio/79":
 			_, _ = w.Write([]byte(`{"id":79,"name":"Village Roadshow Pictures","description":"A studio","headquarters":"Burbank, CA","originCountry":"US","logoPath":"/s79.png"}`))

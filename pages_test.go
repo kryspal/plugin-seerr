@@ -642,3 +642,48 @@ func TestUnreleasedOnTheDetailPage(t *testing.T) {
 		})
 	}
 }
+
+// A wall without pictures (the slider failed or came back empty, as a Seerr that has just started may) is kept only briefly, so it heals.
+func TestGenreWallHealsWhenPicturesComeBack(t *testing.T) {
+	old := degradedTTL
+	degradedTTL = 30 * time.Millisecond
+	t.Cleanup(func() { degradedTTL = old })
+	images := func(p *plugin) int {
+		n := 0
+		for _, c := range getPage(t, p, "genres", "genres_movies", "", "en").GetRows()[0].GetCards() {
+			if c.GetImageUrl() != "" {
+				n++
+			}
+		}
+		return n
+	}
+	for name, setup := range map[string]func(f *fakeSeerr){
+		"the slider fails":    func(f *fakeSeerr) { f.sliderFails = 2 }, // both tries of the first call
+		"the slider is empty": func(f *fakeSeerr) { f.sliderEmpty = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			p, f := newTestPlugin(t)
+			setup(f)
+			if n := images(p); n != 0 {
+				t.Fatalf("%d pictures while the slider gives none", n)
+			}
+			f.mu.Lock()
+			f.sliderEmpty = false
+			f.mu.Unlock()
+			time.Sleep(60 * time.Millisecond)
+			if n := images(p); n == 0 {
+				t.Errorf("the wall still has no pictures after the slider recovered")
+			}
+		})
+	}
+}
+
+func TestGenreWallWithPicturesIsKept(t *testing.T) {
+	p, f := newTestPlugin(t)
+	getPage(t, p, "genres", "genres_movies", "", "en")
+	time.Sleep(30 * time.Millisecond)
+	getPage(t, p, "genres", "genres_movies", "", "en")
+	if n := f.count("/api/v1/discover/genreslider/movie"); n != 1 {
+		t.Errorf("slider asked %d times, want 1", n)
+	}
+}

@@ -2,6 +2,10 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.5.6
+
+- The genre wall heals: when Seerr's genre slider fails (one retry first, logged) or gives genres without pictures, the wall without pictures is kept for 20 seconds instead of ten minutes, so the pictures come back as soon as Seerr can give them.
+
 ## 0.5.5
 
 - "Not out yet" is a poster badge now (amber, top left; "Upcoming" in English, which fits the 8-character limit) instead of a caption, on lists and on the details page. The details page keeps the release date as its caption ("Out 2027-03-05"). A title with no date that Seerr calls planned or in production gets the badge without a date.

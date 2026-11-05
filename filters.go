@@ -282,9 +282,13 @@ type genreCard struct {
 }
 
 type cardEntry struct {
-	at   time.Time
-	list []genreCard
+	at       time.Time
+	list     []genreCard
+	degraded bool // some card has no picture: kept only briefly, so the wall heals when Seerr can give them
 }
+
+// degradedTTL is how long a wall with missing pictures is kept.
+var degradedTTL = 20 * time.Second
 
 // wall returns the genres of a type with a backdrop each (Seerr's genre slider, kept ten minutes). When the slider cannot be read the genres
 // come without pictures; when neither can be read, the error.
@@ -294,7 +298,7 @@ func (c *genreCache) wall(ctx context.Context, p *plugin, tg target, kind, tag s
 	c.mu.Lock()
 	e, ok := c.cards[key]
 	c.mu.Unlock()
-	if ok && c.now().Sub(e.at) <= c.ttl {
+	if ok && c.now().Sub(e.at) <= map[bool]time.Duration{false: c.ttl, true: degradedTTL}[e.degraded] {
 		return e.list, nil
 	}
 	var slider []struct {
@@ -303,7 +307,13 @@ func (c *genreCache) wall(ctx context.Context, p *plugin, tg target, kind, tag s
 		Backdrops []string `json:"backdrops"`
 	}
 	var out []genreCard
-	if err := p.api.get(ctx, tg, "/discover/genreslider/"+kind, url.Values{"language": {lang}}, &slider); err == nil {
+	err := p.api.get(ctx, tg, "/discover/genreslider/"+kind, url.Values{"language": {lang}}, &slider)
+	if err != nil && ctx.Err() == nil {
+		err = p.api.get(ctx, tg, "/discover/genreslider/"+kind, url.Values{"language": {lang}}, &slider) // one more try
+	}
+	if err != nil {
+		slog.Warn("seerr genre slider failed", "kind", kind, "error", err.Error())
+	} else {
 		for _, g := range slider {
 			if name := strings.TrimSpace(g.Name); g.ID > 0 && name != "" {
 				gc := genreCard{genre: genre{ID: g.ID, Name: name}}
@@ -323,8 +333,15 @@ func (c *genreCache) wall(ctx context.Context, p *plugin, tg target, kind, tag s
 			out = append(out, genreCard{genre: g})
 		}
 	}
+	degraded := false
+	for _, g := range out {
+		degraded = degraded || g.Backdrop == ""
+	}
+	if degraded {
+		slog.Warn("seerr genre wall has cards without a picture", "kind", kind)
+	}
 	c.mu.Lock()
-	c.cards[key] = cardEntry{at: c.now(), list: out}
+	c.cards[key] = cardEntry{at: c.now(), list: out, degraded: degraded}
 	c.mu.Unlock()
 	return out, nil
 }
