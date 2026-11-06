@@ -5,20 +5,24 @@ import (
 	"testing"
 
 	pluginv1 "github.com/kryspal/plugin-sdk/pluginv1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
-
-func seedOf(t pluginv1.ItemType, tmdb string) *pluginv1.DiscoverSeed {
-	return &pluginv1.DiscoverSeed{Type: t, ProviderIds: map[string]string{"tmdb": tmdb}}
-}
 
 var (
-	movieT  = pluginv1.ItemType_ITEM_TYPE_MOVIE
-	seriesT = pluginv1.ItemType_ITEM_TYPE_SERIES
+	movieT   = pluginv1.ItemType_ITEM_TYPE_MOVIE
+	seriesT  = pluginv1.ItemType_ITEM_TYPE_SERIES
+	watchedO = pluginv1.DiscoverSeedOrigin_DISCOVER_SEED_ORIGIN_WATCHED
+	libraryO = pluginv1.DiscoverSeedOrigin_DISCOVER_SEED_ORIGIN_LIBRARY
 )
 
-func homeWithSeeds(t *testing.T, p *plugin, lang string, seeds ...*pluginv1.DiscoverSeed) *pluginv1.DiscoverPage {
+func seedFrom(o pluginv1.DiscoverSeedOrigin, t pluginv1.ItemType, tmdb string) *pluginv1.DiscoverSeed {
+	return &pluginv1.DiscoverSeed{Origin: o, Type: t, ProviderIds: map[string]string{"tmdb": tmdb}}
+}
+
+func forYou(t *testing.T, p *plugin, batch uint32, row string, seeds ...*pluginv1.DiscoverSeed) *pluginv1.DiscoverPage {
 	t.Helper()
-	pg, err := p.GetDiscoverPage(ctx, &pluginv1.GetDiscoverPageRequest{Ref: "home", Languages: langs(lang), Seeds: seeds})
+	pg, err := p.GetDiscoverPage(ctx, &pluginv1.GetDiscoverPageRequest{Ref: "foryou", RowId: row, Batch: batch, Languages: langs("zh-TW"), Seeds: seeds})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,110 +41,173 @@ func setupSeeds(f *fakeSeerr) {
 	f.collections = map[string]string{"2344": matrixCollection}
 }
 
-// Without seeds the page is the same as before: no row is made from them.
-func TestNoSeedsNoSeedRows(t *testing.T) {
-	p, f := newTestPlugin(t)
-	setupSeeds(f)
-	for _, seeds := range [][]*pluginv1.DiscoverSeed{nil, {}, {{Type: movieT, ProviderIds: map[string]string{"imdb": "tt1"}}}, {seedOf(movieT, "0"), seedOf(movieT, "x")}} {
-		pg := homeWithSeeds(t, p, "en", seeds...)
-		if got := rowIDs(pg); got != "hero,trending,popular_movies,popular_series,studios,networks" {
-			t.Errorf("rows = %s", got)
+func TestForYouIsASeededTabAfterTheFirst(t *testing.T) {
+	p, _ := newTestPlugin(t)
+	info, err := p.DescribeDiscoverSource(ctx, &pluginv1.DescribeDiscoverSourceRequest{Languages: langs("en")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tabs := info.GetTabs()
+	last := tabs[len(tabs)-1]
+	if !last.GetSeeded() || last.GetRef() != "foryou" || last.GetTitle() != "For you" {
+		t.Errorf("last tab = %v", last)
+	}
+	for _, tab := range tabs[:len(tabs)-1] {
+		if tab.GetSeeded() {
+			t.Errorf("tab %q is seeded", tab.GetTitle())
 		}
 	}
-	if n := f.count("/api/v1/collection/"); n != 0 {
-		t.Errorf("%d collection calls without seeds", n)
+	if tabs[0].GetSeeded() {
+		t.Errorf("the first tab cannot be seeded")
 	}
 }
 
-func TestSeedRows(t *testing.T) {
+// The home page has no row made from seeds, whatever it is sent.
+func TestHomeIgnoresSeeds(t *testing.T) {
 	p, f := newTestPlugin(t)
 	setupSeeds(f)
-	pg := homeWithSeeds(t, p, "zh-TW", seedOf(movieT, "603"), seedOf(movieT, "700"), seedOf(seriesT, "1396"))
-	if got := rowIDs(pg); got != "hero,trending,collection_1,because_1,because_2,because_3,popular_movies,popular_series,studios,networks" {
+	pg, err := p.GetDiscoverPage(ctx, &pluginv1.GetDiscoverPageRequest{Ref: "home", Languages: langs("en"), Seeds: []*pluginv1.DiscoverSeed{seedFrom(watchedO, movieT, "603")}})
+	if err != nil || rowIDs(pg) != "hero,trending,popular_movies,popular_series,studios,networks" {
+		t.Errorf("rows = %s (%v)", rowIDs(pg), err)
+	}
+}
+
+// Without seeds the tab is an empty page, which the host never shows.
+func TestForYouWithoutSeeds(t *testing.T) {
+	p, f := newTestPlugin(t)
+	setupSeeds(f)
+	for _, seeds := range [][]*pluginv1.DiscoverSeed{nil, {{Origin: watchedO, Type: movieT, ProviderIds: map[string]string{"imdb": "tt1"}}}} {
+		pg, err := p.GetDiscoverPage(ctx, &pluginv1.GetDiscoverPageRequest{Ref: "foryou", Languages: langs("en"), Seeds: seeds})
+		if err != nil || len(pg.GetRows()) != 0 {
+			t.Errorf("rows = %s (%v)", rowIDs(pg), err)
+		}
+	}
+	if _, err := p.GetDiscoverPage(ctx, &pluginv1.GetDiscoverPageRequest{Ref: "foryou", RowId: "for_you", Languages: langs("en")}); status.Code(err) != codes.NotFound {
+		t.Logf("a row asked for with no seeds: %v", err)
+	}
+}
+
+func TestForYouPage(t *testing.T) {
+	p, f := newTestPlugin(t)
+	setupSeeds(f)
+	pg := forYou(t, p, 0, "", seedFrom(watchedO, movieT, "603"), seedFrom(watchedO, seriesT, "1396"), seedFrom(libraryO, movieT, "700"))
+	if got := rowIDs(pg); got != "collection_1,for_you" {
 		t.Fatalf("rows = %s", got)
 	}
 	col := rowByID(t, pg, "collection_1")
 	if col.GetTitle() != "補齊系列：The Matrix Collection" || strings.Join(keysOf(col), ",") != "movie:603,movie:604,movie:605" {
-		t.Errorf("collection = %q %v, want the whole collection, oldest first", col.GetTitle(), keysOf(col))
+		t.Errorf("collection = %q %v", col.GetTitle(), keysOf(col))
 	}
-	if b := rowByID(t, pg, "because_1"); b.GetTitle() != "因為你有 The Matrix" || len(b.GetWorks()) == 0 {
-		t.Errorf("because_1 = %q %d works", b.GetTitle(), len(b.GetWorks()))
+	fy := rowByID(t, pg, "for_you")
+	if !fy.GetRefreshable() || fy.GetTitle() != "為你推薦" || len(fy.GetWorks()) == 0 || fy.GetNextPageToken() != "" {
+		t.Errorf("for_you = %q refreshable %v, %d works", fy.GetTitle(), fy.GetRefreshable(), len(fy.GetWorks()))
 	}
-	if b := rowByID(t, pg, "because_3"); b.GetTitle() != "因為你有 Breaking Bad" {
-		t.Errorf("because_3 = %q", b.GetTitle())
-	}
-	// A row asked alone gives the same row for the same seeds.
-	one, err := p.GetDiscoverPage(ctx, &pluginv1.GetDiscoverPageRequest{Ref: "home", RowId: "because_2", Languages: langs("en"),
-		Seeds: []*pluginv1.DiscoverSeed{seedOf(movieT, "603"), seedOf(movieT, "700"), seedOf(seriesT, "1396")}})
-	if err != nil || len(one.GetRows()) != 1 || one.GetRows()[0].GetTitle() != "Because you have Alone" {
-		t.Errorf("row alone = %v (%v)", one.GetRows(), err)
-	}
-	// Filters and sort do not depend on the seeds.
-	plain := homeWithSeeds(t, p, "zh-TW")
-	if len(pg.GetFilters()) != len(plain.GetFilters()) || (pg.GetSort() == nil) != (plain.GetSort() == nil) {
-		t.Errorf("filters differ with seeds")
-	}
-}
-
-// A seed that Seerr does not know costs only its row; the page stays whole.
-func TestUnknownSeedsAreHarmless(t *testing.T) {
-	p, _ := newTestPlugin(t)
-	pg := homeWithSeeds(t, p, "en", seedOf(movieT, "1"), seedOf(seriesT, "1"))
-	if got := rowIDs(pg); got != "hero,trending,popular_movies,popular_series,studios,networks" {
-		t.Errorf("rows = %s", got)
-	}
-	one, err := p.GetDiscoverPage(ctx, &pluginv1.GetDiscoverPageRequest{Ref: "home", RowId: "because_1", Languages: langs("en"), Seeds: []*pluginv1.DiscoverSeed{seedOf(movieT, "1")}})
-	if err != nil || len(one.GetRows()) != 1 || len(one.GetRows()[0].GetWorks()) != 0 {
-		t.Errorf("row alone = %v (%v)", one.GetRows(), err)
-	}
-}
-
-// Rows are not repeated work for work: Seerr is asked about a seed once per request and remembered by number, not by set.
-func TestSeedLookupsAreCachedByNumber(t *testing.T) {
-	p, f := newTestPlugin(t)
-	setupSeeds(f)
-	homeWithSeeds(t, p, "en", seedOf(movieT, "603"), seedOf(movieT, "700"))
-	first := f.countExact("/api/v1/movie/603")
-	if first != 1 {
-		t.Errorf("movie 603 was asked %d times in one request, want 1", first)
-	}
-	homeWithSeeds(t, p, "en", seedOf(movieT, "700"), seedOf(movieT, "603")) // another order, another set
-	if n := f.countExact("/api/v1/movie/603"); n != 1 {
-		t.Errorf("movie 603 asked again: %d", n)
-	}
-	if n := f.countExact("/api/v1/collection/2344"); n != 1 {
-		t.Errorf("collection asked %d times, want 1", n)
-	}
-}
-
-func TestOnlyDistinctCollectionsAndNoSingles(t *testing.T) {
-	p, f := newTestPlugin(t)
-	setupSeeds(f)
-	f.details["movie:604"] = `{"id":604,"title":"Reloaded","collection":{"id":2344,"name":"The Matrix Collection"}}`
-	f.details["movie:800"] = `{"id":800,"title":"One","collection":{"id":9,"name":"Lonely"}}`
-	f.collections["9"] = `{"id":9,"name":"Lonely","parts":[{"id":800,"mediaType":"movie","title":"One","releaseDate":"2000-01-01"}]}`
-	pg := homeWithSeeds(t, p, "en", seedOf(movieT, "603"), seedOf(movieT, "604"), seedOf(movieT, "800"))
-	n := 0
-	for _, r := range pg.GetRows() {
-		if strings.HasPrefix(r.GetId(), "collection_") {
-			n++
+	for _, w := range fy.GetWorks() {
+		for _, name := range []string{"The Matrix", "Breaking Bad", "Alone"} {
+			if strings.Contains(fy.GetTitle(), name) || strings.Contains(w.GetCaption(), name) {
+				t.Errorf("the row names %s", name)
+			}
+		}
+		if w.GetKey() == "movie:603" || w.GetKey() == "tv:1396" {
+			t.Errorf("a seed is recommended after itself: %s", w.GetKey())
 		}
 	}
-	if n != 1 {
-		t.Errorf("%d collection rows, want 1 (two seeds share one collection, and a collection of one is nothing to complete)", n)
+	// The same batch alone, and with the page, gives the same works.
+	again := forYou(t, p, 0, "for_you", seedFrom(watchedO, movieT, "603"), seedFrom(watchedO, seriesT, "1396"), seedFrom(libraryO, movieT, "700"))
+	if len(again.GetRows()) != 1 || strings.Join(keysOf(again.GetRows()[0]), ",") != strings.Join(keysOf(fy), ",") {
+		t.Errorf("batch 0 differs between asks")
+	}
+}
+
+// Watched works come before the library's for collections, each collection once, and the library fills in.
+func TestCollectionsWatchedFirstThenLibrary(t *testing.T) {
+	p, f := newTestPlugin(t)
+	setupSeeds(f)
+	f.details["movie:800"] = `{"id":800,"title":"Heat","collection":{"id":9,"name":"Heat Collection"}}`
+	f.details["movie:604"] = `{"id":604,"title":"Reloaded","collection":{"id":2344,"name":"The Matrix Collection"}}`
+	f.collections["9"] = `{"id":9,"name":"Heat Collection","parts":[{"id":800,"mediaType":"movie","title":"Heat","releaseDate":"1995-01-01","posterPath":"/h.jpg"},{"id":801,"mediaType":"movie","title":"Heat 2","releaseDate":"2030-01-01","posterPath":"/h2.jpg"}]}`
+	f.details["movie:900"] = `{"id":900,"title":"Solo","collection":{"id":77,"name":"Solo Collection"}}`
+	f.collections["77"] = `{"id":77,"name":"Solo Collection","parts":[{"id":900,"mediaType":"movie","title":"Solo","releaseDate":"2001-01-01"}]}`
+	pg := forYou(t, p, 1, "", seedFrom(libraryO, movieT, "800"), seedFrom(watchedO, movieT, "604"), seedFrom(watchedO, movieT, "603"), seedFrom(libraryO, movieT, "900"))
+	var cols []string
+	for _, r := range pg.GetRows() {
+		if strings.HasPrefix(r.GetId(), "collection_") {
+			cols = append(cols, r.GetTitle())
+		}
+	}
+	if want := "補齊系列：The Matrix Collection,補齊系列：Heat Collection"; strings.Join(cols, ",") != want {
+		t.Errorf("collections = %v, want the watched one first, once, then the library's; a collection of one is left out", cols)
+	}
+}
+
+// Another batch is another draw: over many batches the row varies a lot and a batch is stable.
+func TestBatchesDiffer(t *testing.T) {
+	p, _ := newTestPlugin(t)
+	var seeds []*pluginv1.DiscoverSeed
+	for i := 1; i <= 12; i++ {
+		seeds = append(seeds, seedFrom(watchedO, movieT, itoa(i)))
+	}
+	seen := map[string]bool{}
+	var firstKeys []string
+	for b := uint32(0); b < 12; b++ {
+		fy := forYou(t, p, b, "for_you", seeds...).GetRows()[0]
+		if b == 0 {
+			firstKeys = keysOf(fy)
+		}
+		for _, k := range keysOf(fy) {
+			seen[k] = true
+		}
+	}
+	if len(firstKeys) == 0 {
+		t.Fatal("batch 0 is empty")
+	}
+	if len(seen) <= len(firstKeys) {
+		t.Errorf("12 batches gave %d distinct works, batch 0 alone %d", len(seen), len(firstKeys))
+	}
+	if again := keysOf(forYou(t, p, 0, "for_you", seeds...).GetRows()[0]); strings.Join(again, ",") != strings.Join(firstKeys, ",") {
+		t.Errorf("batch 0 is not stable")
+	}
+	// The biggest number is a batch like any other.
+	if len(forYou(t, p, 4294967295, "for_you", seeds...).GetRows()[0].GetWorks()) == 0 {
+		t.Errorf("the largest batch is empty")
+	}
+}
+
+// A seed Seerr does not know costs only its share; with nothing known the row is empty, not an error.
+func TestUnknownSeedsAreHarmless(t *testing.T) {
+	p, f := newTestPlugin(t)
+	f.list = ""
+	pg := forYou(t, p, 3, "", seedFrom(watchedO, movieT, "1"), seedFrom(libraryO, seriesT, "1"))
+	if len(pg.GetRows()) > 2 {
+		t.Errorf("rows = %s", rowIDs(pg))
 	}
 }
 
 func TestSeedsOf(t *testing.T) {
-	got := seedsOf([]*pluginv1.DiscoverSeed{seedOf(movieT, "5"), seedOf(movieT, "5"), seedOf(seriesT, "5"), seedOf(pluginv1.ItemType_ITEM_TYPE_UNSPECIFIED, "6"), seedOf(movieT, "-1")})
-	if len(got) != 2 || got[0] != (seed{kindMovie, 5}) || got[1] != (seed{kindTV, 5}) {
-		t.Errorf("seeds = %v", got)
+	w, l := seedsOf([]*pluginv1.DiscoverSeed{seedFrom(watchedO, movieT, "5"), seedFrom(watchedO, movieT, "5"), seedFrom(libraryO, seriesT, "5"),
+		seedFrom(libraryO, pluginv1.ItemType_ITEM_TYPE_UNSPECIFIED, "6"), seedFrom(watchedO, movieT, "-1"), seedFrom(pluginv1.DiscoverSeedOrigin_DISCOVER_SEED_ORIGIN_UNSPECIFIED, movieT, "7")})
+	if len(w) != 1 || w[0] != (seed{kindMovie, 5}) || len(l) != 2 || l[0] != (seed{kindTV, 5}) || l[1] != (seed{kindMovie, 7}) {
+		t.Errorf("watched %v library %v", w, l)
 	}
 	var many []*pluginv1.DiscoverSeed
-	for i := 1; i <= 40; i++ {
-		many = append(many, seedOf(movieT, itoa(i)))
+	for i := 1; i <= 80; i++ {
+		many = append(many, seedFrom(watchedO, movieT, itoa(i)), seedFrom(libraryO, movieT, itoa(1000+i)))
 	}
-	if n := len(seedsOf(many)); n != 20 {
-		t.Errorf("%d seeds kept, want 20", n)
+	if w, l := seedsOf(many); len(w) != 30 || len(l) != 20 {
+		t.Errorf("%d watched and %d library kept, want 30 and 20", len(w), len(l))
+	}
+}
+
+// Seerr is asked about a seed once per request and remembered by number, not by set.
+func TestSeedLookupsAreCachedByNumber(t *testing.T) {
+	p, f := newTestPlugin(t)
+	setupSeeds(f)
+	forYou(t, p, 0, "", seedFrom(watchedO, movieT, "603"), seedFrom(watchedO, movieT, "700"))
+	forYou(t, p, 1, "", seedFrom(watchedO, movieT, "700"), seedFrom(watchedO, movieT, "603"))
+	if n := f.countExact("/api/v1/movie/603"); n != 1 {
+		t.Errorf("movie 603 was asked %d times, want 1", n)
+	}
+	if n := f.countExact("/api/v1/collection/2344"); n != 1 {
+		t.Errorf("collection asked %d times, want 1", n)
 	}
 }

@@ -31,6 +31,7 @@ const (
 	refMovies = "movies"
 	refSeries = "series"
 	refGenres = "genres"
+	refForYou = "foryou"
 
 	refGenre   = "genre"
 	refStudio  = "studio"
@@ -48,7 +49,7 @@ type pref struct {
 
 func parseRef(ref string) (pref, bool) {
 	switch ref {
-	case refHome, refMovies, refSeries, refGenres:
+	case refHome, refMovies, refSeries, refGenres, refForYou:
 		return pref{kind: ref}, true
 	}
 	parts := strings.Split(ref, ":")
@@ -85,6 +86,7 @@ func (p *plugin) DescribeDiscoverSource(_ context.Context, req *pluginv1.Describ
 			{Title: t.T("tabMovies"), Ref: refMovies},
 			{Title: t.T("tabSeries"), Ref: refSeries},
 			{Title: t.T("tabGenres"), Ref: refGenres},
+			{Title: t.T("tabForYou"), Ref: refForYou, Seeded: true},
 		},
 		SearchTypes: []pluginv1.ItemType{pluginv1.ItemType_ITEM_TYPE_MOVIE, pluginv1.ItemType_ITEM_TYPE_SERIES},
 	}, nil
@@ -115,10 +117,11 @@ type pageCtx struct {
 	sel map[string][]string
 
 	// seeds are the library works of this request (discover.seeds), used for this request only; seedMu guards the lookups shared by its rows.
-	seeds  []seed
-	seedMu sync.Mutex
-	infos  map[string]*infoCall
-	cols   *collectionsCall
+	watched, library []seed
+	batch            uint32
+	seedMu           sync.Mutex
+	infos            map[string]*infoCall
+	cols             *collectionsCall
 }
 
 // GetDiscoverPage returns one page, or one row of it.
@@ -138,7 +141,8 @@ func (p *plugin) GetDiscoverPage(ctx context.Context, req *pluginv1.GetDiscoverP
 		}
 	}
 	tag := req.GetLanguages().GetLanguage()
-	pc := &pageCtx{p: p, tg: tg, t: messages.For(tag), tag: tag, sel: selected(req.GetSelections()), seeds: seedsOf(req.GetSeeds())}
+	pc := &pageCtx{p: p, tg: tg, t: messages.For(tag), tag: tag, sel: selected(req.GetSelections()), batch: req.GetBatch()}
+	pc.watched, pc.library = seedsOf(req.GetSeeds())
 	var def *pageDef
 	switch ref.kind {
 	case refHome:
@@ -149,6 +153,8 @@ func (p *plugin) GetDiscoverPage(ctx context.Context, req *pluginv1.GetDiscoverP
 		def, err = pc.listing(ctx, kindTV)
 	case refGenres:
 		def = pc.genreWalls()
+	case refForYou:
+		def = &pageDef{rows: pc.recommendRows()}
 	case refGenre:
 		def, err = pc.genrePage(ctx, ref.media, ref.id)
 	case refStudio:
@@ -462,8 +468,6 @@ func (pc *pageCtx) home(ctx context.Context) *pageDef {
 		}},
 	)
 	nosel := &pageCtx{p: pc.p, tg: pc.tg, t: pc.t, tag: pc.tag}
-	// Rows made from the library's works, only when the host sent seeds: the rest of a collection, then recommendations after a work.
-	def.rows = append(def.rows, pc.seedRows()...)
 	def.rows = append(def.rows,
 		nosel.filteredRow("popular_movies", "rowPopularMovies", kindMovie, nil, refMovies),
 		nosel.filteredRow("popular_series", "rowPopularSeries", kindTV, nil, refSeries),

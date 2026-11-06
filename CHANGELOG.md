@@ -2,6 +2,11 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.8.0
+
+- A "For you" tab (discover.seeds, off until the administrator allows it), as the protocol now asks: seeds are sent only for this tab, from the library and from what the member watched. It shows the rest of the collections the seeds belong to (the watched first) and a refreshable row of recommendations drawn at random by the batch number from a few watched titles. The row's title names no film.
+- The home page no longer has rows made from seeds (0.7.0's "Because you have" and collection rows moved or went).
+
 ## 0.7.0
 
 - Rows made from the library (discover.seeds, off until the administrator allows it): on Home, the rest of the collections the seeds belong to and what Seerr recommends after the first three seeds. Nothing is shown without seeds, and seeds are used only to answer the request.

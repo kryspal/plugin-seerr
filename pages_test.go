@@ -49,7 +49,7 @@ func TestDescribeDeclaresTabsAndSearch(t *testing.T) {
 	for _, tab := range info.GetTabs() {
 		tabs = append(tabs, tab.GetTitle()+"="+tab.GetRef())
 	}
-	if got := strings.Join(tabs, ","); got != "首頁=home,電影=movies,劇集=series,類型=genres" {
+	if got := strings.Join(tabs, ","); got != "首頁=home,電影=movies,劇集=series,類型=genres,為你推薦=foryou" {
 		t.Errorf("tabs = %s", got)
 	}
 	if len(info.GetSearchTypes()) != 2 {
