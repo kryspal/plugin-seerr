@@ -581,6 +581,7 @@ func (pc *pageCtx) companyPage(kind string, id int) *pageDef {
 		h := &pluginv1.DiscoverPageHeader{Title: truncate(strings.TrimSpace(c.Name), pluginMaxHeader), Overview: truncate(c.Description, 8000)}
 		if c.LogoPath != "" {
 			h.ImageUrl = imageBase + logoSize + c.LogoPath
+			h.ImageKind = pluginv1.DiscoverCardImageKind_DISCOVER_CARD_IMAGE_KIND_LOGO
 		}
 		h.Facts = facts(fact{pc.t.T("factHQ"), c.Headquarters}, fact{pc.t.T("factCountry"), c.OriginCtry})
 		return h, nil

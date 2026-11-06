@@ -2,6 +2,10 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.8.3
+
+- The header picture of a studio's or a network's page says it is a logo, and a person's says it is a portrait (`DiscoverPageHeader.image_kind`); other pages say nothing, so the web client decides. Needs the SDK that has this field.
+
 ## 0.8.2
 
 - The Chinese titles of the "For you" tab and its row are shortened to the single word for "recommended" (English stays "For you").

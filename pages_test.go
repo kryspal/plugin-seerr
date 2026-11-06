@@ -283,7 +283,7 @@ func TestGenresTabIsAWallOfCards(t *testing.T) {
 func TestGenrePage(t *testing.T) {
 	p, f := newTestPlugin(t)
 	pg := getPage(t, p, "genre:tv:28", "", "", "en", sel("sort", "newest"))
-	if h := pg.GetHeader(); h.GetTitle() != "动作" || h.GetSubtitle() != "Series" {
+	if h := pg.GetHeader(); h.GetTitle() != "动作" || h.GetSubtitle() != "Series" || h.GetImageKind() != pluginv1.DiscoverCardImageKind_DISCOVER_CARD_IMAGE_KIND_UNSPECIFIED {
 		t.Errorf("header = %v", h)
 	}
 	for _, fl := range pg.GetFilters() {
@@ -306,6 +306,9 @@ func TestStudioAndNetworkPages(t *testing.T) {
 	h := pg.GetHeader()
 	if h.GetTitle() != "Village Roadshow Pictures" || h.GetOverview() != "A studio" || !strings.HasSuffix(h.GetImageUrl(), "/s79.png") || len(h.GetFacts()) != 2 || h.GetFacts()[0].GetValue() != "Burbank, CA" {
 		t.Errorf("header = %v", h)
+	}
+	if h.GetImageKind() != pluginv1.DiscoverCardImageKind_DISCOVER_CARD_IMAGE_KIND_LOGO {
+		t.Errorf("a studio's picture is a logo, got %v", h.GetImageKind())
 	}
 	var q string
 	for _, r := range f.reqs {
@@ -334,6 +337,9 @@ func TestPersonPage(t *testing.T) {
 	h := pg.GetHeader()
 	if h.GetTitle() != "Keanu" || h.GetOverview() != "Bio" || !strings.HasSuffix(h.GetImageUrl(), "w185/k.jpg") {
 		t.Errorf("header = %v", h)
+	}
+	if h.GetImageKind() != pluginv1.DiscoverCardImageKind_DISCOVER_CARD_IMAGE_KIND_PORTRAIT {
+		t.Errorf("a person's picture is a portrait, got %v", h.GetImageKind())
 	}
 	if len(h.GetFacts()) != 2 || h.GetFacts()[0].GetLabel() != "Born" || h.GetFacts()[0].GetValue() != "1964-09-02" {
 		t.Errorf("facts = %v, want born and place only (deathday is null)", h.GetFacts())

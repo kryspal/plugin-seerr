@@ -124,6 +124,7 @@ func (pc *pageCtx) personHeader(ctx context.Context, id int) (*pluginv1.Discover
 	h := &pluginv1.DiscoverPageHeader{Title: truncate(name, pluginMaxHeader), Overview: truncate(strings.TrimSpace(d.Biography), 8000)}
 	if d.ProfilePth != "" {
 		h.ImageUrl = imageBase + profileSize + d.ProfilePth
+		h.ImageKind = pluginv1.DiscoverCardImageKind_DISCOVER_CARD_IMAGE_KIND_PORTRAIT
 	}
 	h.Facts = facts(fact{pc.t.T("factBorn"), d.Birthday}, fact{pc.t.T("factDied"), d.Deathday}, fact{pc.t.T("factBirthplace"), d.BirthPlace})
 	return h, nil
