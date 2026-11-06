@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	pluginv1 "github.com/kryspal/plugin-sdk/pluginv1"
 	"google.golang.org/grpc/codes"
@@ -173,5 +174,29 @@ func TestRunCheck(t *testing.T) {
 	}
 	if _, err := p.RunCheck(ctx, &pluginv1.RunCheckRequest{Id: "other"}); status.Code(err) != codes.InvalidArgument {
 		t.Errorf("unknown check: %v", err)
+	}
+}
+
+func TestCheckExplainsLocalNames(t *testing.T) {
+	p, _ := newTestPlugin(t)
+	check := func(base, lang string) string {
+		c, cancel := context.WithTimeout(ctx, 500*time.Millisecond) // a .local lookup can hang; the reason is the same
+		defer cancel()
+		r, err := p.RunCheck(c, &pluginv1.RunCheckRequest{Id: "test_connection", Language: lang, Values: map[string]string{keyBaseURL: base, keyAPIKey: "k"}})
+		if err != nil || len(r.GetResults()) != 1 || r.GetResults()[0].GetStatus() != pluginv1.CheckStatus_CHECK_STATUS_FAILED {
+			t.Fatalf("%s: %v %v", base, r, err)
+		}
+		return r.GetResults()[0].GetMessage()
+	}
+	for _, base := range []string{"http://seerr.local:5055", "http://NAS.Local.:5055"} {
+		if got := check(base, "en"); !strings.Contains(got, ".local") {
+			t.Errorf("%s: %q, want the .local reason", base, got)
+		}
+	}
+	if got := check("http://seerr.local:5055", "zh-TW"); !strings.Contains(got, ".local") {
+		t.Errorf("zh-TW: %q", got)
+	}
+	if got := check("http://127.0.0.1:1", "en"); strings.Contains(got, ".local") {
+		t.Errorf("an IP address got the .local reason: %q", got)
 	}
 }

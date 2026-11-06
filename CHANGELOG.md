@@ -2,6 +2,10 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.6.1
+
+- The Seerr address help says to use an IP address or a name the router knows, and that names ending in .local are not supported (the server and its plugins cannot resolve mDNS names). The connection check gives that reason when the address is a .local name and Seerr cannot be reached.
+
 ## 0.6.0
 
 - A title appears once on a page with several rows, in the first row that has it (hero, trending, popular movies, popular series), keyed by type and TMDB number. Paging a row asked alone leaves out what the rows above it showed on their first screen (their first pages come from the list cache). A row of posters left with fewer than ten titles takes the next pages of its list, two at most, and its page token moves past them; a row with nothing new left is not shown. Pages with one row (Movies, Series, a genre, a studio, a person) are not changed.

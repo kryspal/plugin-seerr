@@ -126,6 +126,15 @@ func normalizeBase(raw string) (base string, bad bool) {
 	return s, false
 }
 
+// isLocalName reports whether the address names its host with a .local name (mDNS).
+func isLocalName(base string) bool {
+	u, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	return strings.HasSuffix(strings.ToLower(strings.TrimSuffix(u.Hostname(), ".")), ".local")
+}
+
 // RunCheck tests the connection with the values on the form: Seerr answers /status, and accepts the key.
 func (p *plugin) RunCheck(ctx context.Context, req *pluginv1.RunCheckRequest) (*pluginv1.RunCheckResponse, error) {
 	if req.GetId() != checkConnect {
@@ -145,6 +154,10 @@ func (p *plugin) RunCheck(ctx context.Context, req *pluginv1.RunCheckRequest) (*
 		Version string `json:"version"`
 	}
 	if err := p.api.get(ctx, tg, "/status", nil, &st); err != nil {
+		if isLocalName(base) {
+			// The server and the plugins are static Go programs and cannot resolve mDNS names.
+			return one(pluginv1.CheckStatus_CHECK_STATUS_FAILED, t.T("checkLocal"))
+		}
 		return one(pluginv1.CheckStatus_CHECK_STATUS_FAILED, t.T("checkNoServer"))
 	}
 	var me struct {
