@@ -200,3 +200,19 @@ func (p *plugin) mustTarget(t *testing.T) target {
 	}
 	return tg
 }
+
+func TestGenreImage(t *testing.T) {
+	five := []string{"/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg"}
+	if got := genreImage(27, five); got != imageBase+"w1280_filter(duotone,1F2937,D1D5DB)/5.jpg" {
+		t.Errorf("five backdrops = %s", got)
+	}
+	if got := genreImage(28, five[:2]); got != imageBase+"w1280_filter(duotone,991B1B,FCA5A5)/1.jpg" {
+		t.Errorf("two backdrops = %s", got)
+	}
+	if got := genreImage(999999, five[:1]); got != imageBase+"w1280_filter(duotone,1F2937,D1D5DB)/1.jpg" {
+		t.Errorf("unknown genre = %s", got)
+	}
+	if genreImage(28, nil) != "" || genreImage(28, []string{""}) != "" {
+		t.Error("no picture must stay empty")
+	}
+}

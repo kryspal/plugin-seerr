@@ -376,9 +376,7 @@ func (c *genreCache) startSlider(p *plugin, tg target, kind, lang, key string) <
 		for _, g := range slider {
 			if name := strings.TrimSpace(g.Name); g.ID > 0 && name != "" {
 				gc := genreCard{genre: genre{ID: g.ID, Name: name}}
-				if len(g.Backdrops) > 0 && g.Backdrops[0] != "" {
-					gc.Backdrop = imageBase + cardSize + g.Backdrops[0]
-				}
+				gc.Backdrop = genreImage(g.ID, g.Backdrops)
 				degraded = degraded || gc.Backdrop == ""
 				out = append(out, gc)
 			}
@@ -392,4 +390,33 @@ func (c *genreCache) startSlider(p *plugin, tg target, kind, lang, key string) <
 		c.mu.Unlock()
 	}()
 	return ch
+}
+
+// Seerr shows a genre on a duotone picture: TMDB's image service recolours the backdrop between two colours that belong to the genre,
+// and Seerr takes the fifth backdrop of the slider at 1280 px. The wall does the same, with the first backdrop when there are fewer.
+var genreTones = map[int][2]string{
+	28: {"991B1B", "FCA5A5"}, 12: {"480c8b", "a96bef"}, 16: {"032541", "01b4e4"}, 35: {"92400E", "FCD34D"},
+	80: {"1F2937", "2864d2"}, 99: {"065F46", "6EE7B7"}, 18: {"9D174D", "F9A8D4"}, 10751: {"777e0d", "e4ed55"},
+	14: {"1F2937", "60A5FA"}, 36: {"92400E", "FCD34D"}, 27: {"1F2937", "D1D5DB"}, 10402: {"032541", "01b4e4"},
+	9648: {"5B21B6", "C4B5FD"}, 10749: {"9D174D", "F9A8D4"}, 878: {"1F2937", "60A5FA"}, 10770: {"991B1B", "FCA5A5"},
+	53: {"1F2937", "D1D5DB"}, 10752: {"1F2937", "F87171"}, 37: {"92400E", "FCD34D"}, 10759: {"480c8b", "a96bef"},
+	10762: {"032541", "01b4e4"}, 10763: {"1F2937", "D1D5DB"}, 10764: {"552c01", "d47c1d"}, 10765: {"1F2937", "60A5FA"},
+	10766: {"9D174D", "F9A8D4"}, 10767: {"065F46", "6EE7B7"}, 10768: {"1F2937", "F87171"},
+}
+
+func genreImage(id int, backdrops []string) string {
+	path := ""
+	if len(backdrops) > 4 && backdrops[4] != "" {
+		path = backdrops[4]
+	} else if len(backdrops) > 0 {
+		path = backdrops[0]
+	}
+	if path == "" {
+		return ""
+	}
+	tone, ok := genreTones[id]
+	if !ok {
+		tone = [2]string{"1F2937", "D1D5DB"}
+	}
+	return imageBase + "w1280_filter(duotone," + tone[0] + "," + tone[1] + ")" + path
 }

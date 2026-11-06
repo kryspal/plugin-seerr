@@ -230,11 +230,11 @@ func (pc *pageCtx) recommendRows() []rowSpec {
 	if len(pc.watched)+len(pc.library) == 0 {
 		return nil
 	}
-	var rows []rowSpec
+	rows := []rowSpec{pc.forYouRow()}
 	for i := 0; i < maxCollections; i++ {
 		rows = append(rows, pc.collectionRow(i))
 	}
-	return append(rows, pc.forYouRow())
+	return rows
 }
 
 // forYouRow is a batch of recommendations: a few seeds drawn at random by the batch number, and from each a random page of what Seerr

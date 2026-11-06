@@ -2,6 +2,12 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.8.1
+
+- The genre wall looks like Seerr's: each genre's picture is recoloured with the genre's two colours (TMDB's duotone filter, the same colours Seerr uses) and is the fifth backdrop of Seerr's genre slider, the first when there are fewer.
+- In the "For you" tab the recommendations come first and the collections to complete follow.
+- README: after a new media library is created, it must be refreshed and enabled in Seerr's settings, or Seerr does not mark requests as available.
+
 ## 0.8.0
 
 - A "For you" tab (discover.seeds, off until the administrator allows it), as the protocol now asks: seeds are sent only for this tab, from the library and from what the member watched. It shows the rest of the collections the seeds belong to (the watched first) and a refreshable row of recommendations drawn at random by the batch number from a few watched titles. The row's title names no film.

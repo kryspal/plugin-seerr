@@ -40,7 +40,6 @@ const (
 	imageBase    = "https://image.tmdb.org/t/p/"
 	posterSize   = "w500"
 	backdropSize = "w1280"
-	cardSize     = "w780"
 	logoSize     = "w185"
 	cardLogoSize = "w500"
 	profileSize  = "w185"

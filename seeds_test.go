@@ -91,7 +91,7 @@ func TestForYouPage(t *testing.T) {
 	p, f := newTestPlugin(t)
 	setupSeeds(f)
 	pg := forYou(t, p, 0, "", seedFrom(watchedO, movieT, "603"), seedFrom(watchedO, seriesT, "1396"), seedFrom(libraryO, movieT, "700"))
-	if got := rowIDs(pg); got != "collection_1,for_you" {
+	if got := rowIDs(pg); got != "for_you,collection_1" {
 		t.Fatalf("rows = %s", got)
 	}
 	col := rowByID(t, pg, "collection_1")

@@ -265,7 +265,7 @@ func TestGenresTabIsAWallOfCards(t *testing.T) {
 	if r.GetStyle() != pluginv1.DiscoverRowStyle_DISCOVER_ROW_STYLE_CARDS || len(r.GetCards()) != 2 || r.GetTitle() != "电影类型" {
 		t.Fatalf("row = %v", r)
 	}
-	if c := r.GetCards()[0]; c.GetTitle() != "动作" || c.GetRef() != "genre:movie:28" || c.GetImageUrl() != "https://image.tmdb.org/t/p/w780/g28.jpg" {
+	if c := r.GetCards()[0]; c.GetTitle() != "动作" || c.GetRef() != "genre:movie:28" || c.GetImageUrl() != "https://image.tmdb.org/t/p/w1280_filter(duotone,991B1B,FCA5A5)/g28.jpg" {
 		t.Errorf("card = %v", c)
 	}
 	if r.GetCards()[0].GetImageKind() != pluginv1.DiscoverCardImageKind_DISCOVER_CARD_IMAGE_KIND_COVER {
