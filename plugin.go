@@ -52,11 +52,12 @@ type plugin struct {
 	people *creditCache
 	seeds  *seedCache
 	states *statusCache
+	tiers  *tierCache
 	genres *genreCache
 }
 
 func newPlugin() *plugin {
-	return &plugin{api: newAPI(), cache: newDetailCache(), users: newUserCache(), titles: newTitleCache(), pages: newPageCache(), people: newCreditCache(), seeds: newSeedCache(), states: newStatusCache(), genres: newGenreCache()}
+	return &plugin{api: newAPI(), cache: newDetailCache(), users: newUserCache(), titles: newTitleCache(), pages: newPageCache(), people: newCreditCache(), seeds: newSeedCache(), states: newStatusCache(), tiers: newTierCache(), genres: newGenreCache()}
 }
 
 // Describe declares the two discover capabilities and the connection check. The settings are the address of the Seerr server and its API key.
@@ -114,6 +115,7 @@ func (p *plugin) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	p.people.clear()
 	p.seeds.clear()
 	p.states.clear()
+	p.tiers.clear()
 	p.genres.clear()
 	return resp, nil
 }
@@ -439,9 +441,10 @@ type statusCache struct {
 }
 
 type statusEntry struct {
-	at      time.Time
-	present bool // Seerr has a record for the title
-	status  int
+	at       time.Time
+	present  bool // Seerr has a record for the title
+	status   int
+	status4k int // the 4K side of the title
 }
 
 func newStatusCache() *statusCache {
@@ -460,7 +463,7 @@ func (c *statusCache) record(rs []result) {
 		}
 		e := statusEntry{at: c.now()}
 		if r.MediaInfo != nil {
-			e.present, e.status = true, r.MediaInfo.Status
+			e.present, e.status, e.status4k = true, r.MediaInfo.Status, r.MediaInfo.Status4K
 		}
 		c.m[workKey(r.MediaType, r.ID)] = e
 	}
@@ -486,4 +489,72 @@ func (c *statusCache) clear() {
 	c.mu.Lock()
 	c.m = map[string]statusEntry{}
 	c.mu.Unlock()
+}
+
+// tierCache remembers whether Seerr has a 4K server for movies (Radarr) and for series (Sonarr). The answer changes only when the administrator
+// changes Seerr's settings, so ten minutes is enough; a failed question is asked again after half a minute and counts as no 4K meanwhile.
+type tierCache struct {
+	mu  sync.Mutex
+	m   map[string]tierEntry
+	now func() time.Time
+}
+
+type tierEntry struct {
+	at     time.Time
+	has4k  bool
+	failed bool
+}
+
+func newTierCache() *tierCache { return &tierCache{m: map[string]tierEntry{}, now: time.Now} }
+
+func (c *tierCache) get(key string) (has4k, ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, found := c.m[key]
+	ttl := 10 * time.Minute
+	if e.failed {
+		ttl = 30 * time.Second
+	}
+	if !found || c.now().Sub(e.at) > ttl {
+		return false, false
+	}
+	return e.has4k, true
+}
+
+func (c *tierCache) put(key string, has4k, failed bool) {
+	c.mu.Lock()
+	c.m[key] = tierEntry{at: c.now(), has4k: has4k, failed: failed}
+	c.mu.Unlock()
+}
+
+func (c *tierCache) clear() {
+	c.mu.Lock()
+	c.m = map[string]tierEntry{}
+	c.mu.Unlock()
+}
+
+// has4k says whether Seerr has a 4K server for the type: only then is the choice between standard and 4K offered, and a title's 4K side
+// counts. It asks Seerr's settings (the API key is an administrator's); any failure counts as no 4K server.
+func (p *plugin) has4k(ctx context.Context, tg target, kind string) bool {
+	key := tg.base + "#" + kind
+	if v, ok := p.tiers.get(key); ok {
+		return v
+	}
+	path := "/settings/radarr"
+	if kind == kindTV {
+		path = "/settings/sonarr"
+	}
+	var servers []struct {
+		Is4K bool `json:"is4k"`
+	}
+	if err := p.api.get(ctx, tg, path, nil, &servers); err != nil {
+		p.tiers.put(key, false, true)
+		return false
+	}
+	has := false
+	for _, s := range servers {
+		has = has || s.Is4K
+	}
+	p.tiers.put(key, has, false)
+	return has
 }

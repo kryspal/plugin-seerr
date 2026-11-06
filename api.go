@@ -254,16 +254,50 @@ type person struct {
 	ProfileRaw  string `json:"profile_path"`
 }
 
-// mediaInfo is what Seerr knows about a title's availability.
+// mediaInfo is what Seerr knows about a title's availability. The 4K fields are the same facts for the 4K tier: Seerr keeps a title's standard
+// and 4K versions apart (a request has is4k, the media has status4k, seasons4k and downloadStatus4k).
 type mediaInfo struct {
-	TMDBID         int `json:"tmdbId"`
-	DownloadStatus []struct {
-		Size     float64 `json:"size"`
-		SizeLeft float64 `json:"sizeLeft"`
-	} `json:"downloadStatus"`
-	Status   int            `json:"status"`
-	Requests []request      `json:"requests"`
-	Seasons  []seasonStatus `json:"seasons"`
+	TMDBID           int            `json:"tmdbId"`
+	DownloadStatus   []download     `json:"downloadStatus"`
+	DownloadStatus4K []download     `json:"downloadStatus4k"`
+	Status           int            `json:"status"`
+	Status4K         int            `json:"status4k"`
+	Requests         []request      `json:"requests"`
+	Seasons          []seasonStatus `json:"seasons"`
+	Seasons4K        []seasonStatus `json:"seasons4k"`
+}
+
+// download is one item of Radarr's or Sonarr's queue as Seerr lists it. A season pack is one download that shows as one item per episode, all
+// with the same downloadId. EstimatedCompletionTime is an ISO time, or null when the queue gives none.
+type download struct {
+	Size                    float64 `json:"size"`
+	SizeLeft                float64 `json:"sizeLeft"`
+	Status                  string  `json:"status"`
+	Title                   string  `json:"title"`
+	DownloadID              string  `json:"downloadId"`
+	EstimatedCompletionTime string  `json:"estimatedCompletionTime"`
+}
+
+// tier is the part of a title's record that belongs to the standard or the 4K version.
+func (m *mediaInfo) tierStatus(is4k bool) int {
+	if is4k {
+		return m.Status4K
+	}
+	return m.Status
+}
+
+func (m *mediaInfo) tierSeasons(is4k bool) []seasonStatus {
+	if is4k {
+		return m.Seasons4K
+	}
+	return m.Seasons
+}
+
+func (m *mediaInfo) tierDownloads(is4k bool) []download {
+	if is4k {
+		return m.DownloadStatus4K
+	}
+	return m.DownloadStatus
 }
 
 type request struct {

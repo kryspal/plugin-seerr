@@ -2,6 +2,12 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.8.4
+
+- My requests: the progress no longer runs high. A season pack that the queue lists once per episode counts once, and a download with no known size now leaves the percentage out instead of being skipped.
+- My requests: the stage of the download (queued, downloading, paused, stalled, importing; the one needing attention most when there are several) and the expected finish time, for requests in processing. Needs the SDK that has these fields.
+- 4K: when Seerr has a 4K Radarr or Sonarr, the request dialog asks for the quality (standard or 4K) and the request carries `is4k`. The status, the seasons and the download progress are read from the side that was asked for; a title shows the better of the two states. Without a 4K server nothing changes.
+
 ## 0.8.3
 
 - The header picture of a studio's or a network's page says it is a logo, and a person's says it is a portrait (`DiscoverPageHeader.image_kind`); other pages say nothing, so the web client decides. Needs the SDK that has this field.

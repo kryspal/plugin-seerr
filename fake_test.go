@@ -38,6 +38,8 @@ type fakeSeerr struct {
 	deleted string
 	// credits, when set, replaces the credits of person 6384.
 	credits string
+	// radarr and sonarr, when set, are the answers of /settings/radarr and /settings/sonarr (the servers Seerr has); otherwise they are not found.
+	radarr, sonarr string
 	// requests answers GET /request.
 	requests string
 	// lookupDelay slows the details asked in a language, as a cold Seerr is.
@@ -76,6 +78,10 @@ func (f *fakeSeerr) handler(t *testing.T) http.Handler {
 			_, _ = w.Write([]byte(`{"id":1}`))
 		case path == "/user":
 			_, _ = w.Write([]byte(f.users))
+		case path == "/settings/radarr" && f.radarr != "":
+			_, _ = w.Write([]byte(f.radarr))
+		case path == "/settings/sonarr" && f.sonarr != "":
+			_, _ = w.Write([]byte(f.sonarr))
 		case path == "/genres/movie", path == "/genres/tv":
 			if f.genres != "" {
 				_, _ = w.Write([]byte(f.genres))

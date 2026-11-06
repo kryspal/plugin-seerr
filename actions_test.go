@@ -196,7 +196,7 @@ func TestStatesCache(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if n := len(f.reqs); n != 1 {
+	if n := f.count("/api/v1/movie/"); n != 1 {
 		t.Errorf("Seerr was asked %d times for three badge calls, want 1", n)
 	}
 }

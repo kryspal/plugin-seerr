@@ -32,6 +32,9 @@ type assessment struct {
 	canRequest bool
 	label      string // "" keeps the declared button text
 	seasons    []seasonChoice
+	// std and uhd are the standard and the 4K side of a title, set only when Seerr has a 4K server for the type: then the request dialog asks
+	// which one, and the fields above say what holds for the title as a whole (the better status, whether either side can be requested).
+	std, uhd *assessment
 }
 
 var statusText = map[pluginv1.WorkStatus]string{
@@ -44,11 +47,12 @@ var statusText = map[pluginv1.WorkStatus]string{
 }
 
 // assess maps Seerr's media and request status onto the fixed set of states. memberID is the member's Seerr user, 0 when unknown; a declined
-// or failed request only counts for the member who made it.
+// or failed request only counts for the member who made it. is4k says which version of the title is judged: Seerr keeps the standard and the
+// 4K version apart, each with its own requests, status and seasons.
 //
 // Media status: 1 unknown and 7 deleted count as nothing; 2 awaiting approval; 3 processing; 4 partly available; 5 available; 6 blocklisted
 // counts as nothing and cannot be requested. Request status: 3 declined (the title can be requested again), 4 failed.
-func assess(kind string, r result, memberID int) assessment {
+func assess(kind string, r result, memberID int, is4k bool) assessment {
 	mi := r.MediaInfo
 	if mi == nil {
 		mi = &mediaInfo{}
@@ -57,7 +61,7 @@ func assess(kind string, r result, memberID int) assessment {
 	var pending, approved bool
 	requested := map[int]bool{}
 	for _, rq := range mi.Requests {
-		if rq.Is4K {
+		if rq.Is4K != is4k {
 			continue
 		}
 		switch rq.Status {
@@ -76,7 +80,7 @@ func assess(kind string, r result, memberID int) assessment {
 	}
 	a := assessment{status: pluginv1.WorkStatus_WORK_STATUS_NONE}
 	whole := true // may a new request be made at all
-	switch mi.Status {
+	switch mi.tierStatus(is4k) {
 	case mediaAvailable:
 		a.status, whole = pluginv1.WorkStatus_WORK_STATUS_AVAILABLE, false
 	case mediaPartial:
@@ -108,12 +112,12 @@ func assess(kind string, r result, memberID int) assessment {
 		}
 		return a
 	}
-	if mi.Status == mediaBlocklisted {
+	if mi.tierStatus(is4k) == mediaBlocklisted {
 		return a
 	}
 	// A series stays open to the seasons nobody has asked for, whatever its overall state: the seasons below decide.
 	have := map[int]int{}
-	for _, s := range mi.Seasons {
+	for _, s := range mi.tierSeasons(is4k) {
 		have[s.SeasonNumber] = s.Status
 	}
 	blocked := false
@@ -123,7 +127,7 @@ func assess(kind string, r result, memberID int) assessment {
 		}
 		c := seasonChoice{number: s.SeasonNumber}
 		switch st := have[s.SeasonNumber]; {
-		case st == mediaAvailable || mi.Status == mediaAvailable:
+		case st == mediaAvailable || mi.tierStatus(is4k) == mediaAvailable:
 			c.disabled, c.noteKey = true, "noteAvailable"
 		case st == mediaPartial:
 			c.disabled, c.noteKey = true, "notePartial"
@@ -146,6 +150,80 @@ func assess(kind string, r result, memberID int) assessment {
 	return a
 }
 
+// statusRank orders the states by how far the title has come, for choosing the one to show when the standard and the 4K side differ.
+func statusRank(s pluginv1.WorkStatus) int {
+	switch s {
+	case pluginv1.WorkStatus_WORK_STATUS_AVAILABLE:
+		return 5
+	case pluginv1.WorkStatus_WORK_STATUS_PARTIAL:
+		return 4
+	case pluginv1.WorkStatus_WORK_STATUS_PROCESSING:
+		return 3
+	case pluginv1.WorkStatus_WORK_STATUS_PENDING:
+		return 2
+	case pluginv1.WorkStatus_WORK_STATUS_NONE:
+		return 0
+	}
+	return 1 // declined, failed
+}
+
+// assessAll is assess for a title whose type may have a 4K server (has4k). Without one it is the standard side alone. With one the title
+// shows the better of the two states and can be requested while either side can; each side keeps its own assessment for the dialog.
+func assessAll(kind string, r result, memberID int, has4k bool) assessment {
+	std := assess(kind, r, memberID, false)
+	if !has4k {
+		return std
+	}
+	uhd := assess(kind, r, memberID, true)
+	out := std
+	out.std, out.uhd = &std, &uhd
+	if statusRank(uhd.status) > statusRank(std.status) {
+		out.status, out.textKey = uhd.status, uhd.textKey
+	}
+	out.canRequest = std.canRequest || uhd.canRequest
+	if !std.canRequest && uhd.canRequest {
+		out.label = uhd.label
+		if out.label == "" && std.status != pluginv1.WorkStatus_WORK_STATUS_NONE {
+			out.label = "actionMore"
+		}
+	}
+	// A season can be asked for when it is open on either side; the side chosen decides when the request is made.
+	out.seasons = nil
+	for i, c := range std.seasons {
+		if c.disabled && i < len(uhd.seasons) && !uhd.seasons[i].disabled {
+			c = uhd.seasons[i]
+		}
+		out.seasons = append(out.seasons, c)
+	}
+	return out
+}
+
+// qualityOption asks which version to request: standard or 4K. A side that cannot be requested is shown, disabled, with the reason.
+func (a assessment) qualityOption(t i18n.Translator) *pluginv1.WorkOption {
+	opt := &pluginv1.WorkOption{Key: optQuality, Label: t.T("optQuality"), Required: true}
+	picked := false
+	for _, side := range []struct {
+		value, label string
+		a            *assessment
+	}{{qualityStandard, "qualityStandard", a.std}, {quality4K, "quality4K", a.uhd}} {
+		c := &pluginv1.WorkChoice{Value: side.value, Label: t.T(side.label), Disabled: !side.a.canRequest}
+		if c.Disabled {
+			switch side.a.status {
+			case pluginv1.WorkStatus_WORK_STATUS_AVAILABLE:
+				c.Note = t.T("noteAvailable")
+			case pluginv1.WorkStatus_WORK_STATUS_PARTIAL:
+				c.Note = t.T("notePartial")
+			default:
+				c.Note = t.T("noteRequested")
+			}
+		} else if !picked {
+			c.Selected, picked = true, true
+		}
+		opt.Choices = append(opt.Choices, c)
+	}
+	return opt
+}
+
 // state builds the WorkState of one assessment; with offers it also says what the member can do.
 func (a assessment) state(ref string, t i18n.Translator, offers bool) *pluginv1.WorkState {
 	st := &pluginv1.WorkState{Ref: ref, Status: a.status}
@@ -158,6 +236,9 @@ func (a assessment) state(ref string, t i18n.Translator, offers bool) *pluginv1.
 	offer := &pluginv1.WorkActionOffer{Action: actionRequest}
 	if a.label != "" {
 		offer.Label = t.T(a.label)
+	}
+	if a.uhd != nil {
+		offer.Options = append(offer.Options, a.qualityOption(t))
 	}
 	if len(a.seasons) > 0 {
 		opt := &pluginv1.WorkOption{Key: "seasons", Label: t.T("optSeasons"), Multiple: true, Required: true}
@@ -172,7 +253,7 @@ func (a assessment) state(ref string, t i18n.Translator, offers bool) *pluginv1.
 			}
 			opt.Choices = append(opt.Choices, c)
 		}
-		offer.Options = []*pluginv1.WorkOption{opt}
+		offer.Options = append(offer.Options, opt)
 	}
 	st.Actions = []*pluginv1.WorkActionOffer{offer}
 	return st
@@ -252,7 +333,7 @@ func (p *plugin) GetWorkStates(ctx context.Context, req *pluginv1.GetWorkStatesR
 			continue
 		}
 		kind, _, _ := refKind(w)
-		resp.States = append(resp.States, assess(kind, details[i], memberID(details[i])).state(w.GetRef(), t, req.GetIncludeActions()))
+		resp.States = append(resp.States, assessAll(kind, details[i], memberID(details[i]), p.has4k(ctx, tg, kind)).state(w.GetRef(), t, req.GetIncludeActions()))
 	}
 	if len(resp.States) == 0 && firstErr != nil {
 		return nil, firstErr
@@ -364,11 +445,28 @@ func (p *plugin) RunWorkAction(ctx context.Context, req *pluginv1.RunWorkActionR
 	if err != nil {
 		return nil, err
 	}
-	a := assess(kind, r, uid)
+	has4k := p.has4k(ctx, tg, kind)
+	all := assessAll(kind, r, uid, has4k)
+	a, is4k := all, false
+	if q := chosenQuality(req.GetSelections()); has4k {
+		switch q {
+		case "", qualityStandard:
+			a = *all.std
+		case quality4K:
+			a, is4k = *all.uhd, true
+		default:
+			return refuse("refCannot")
+		}
+	} else if q == quality4K {
+		return refuse("refCannot") // Seerr has no 4K server for this type
+	}
 	if !a.canRequest {
 		return refuse("refCannot")
 	}
 	body := map[string]any{"mediaType": kind, "mediaId": id}
+	if has4k {
+		body["is4k"] = is4k
+	}
 	if kind == kindTV {
 		seasons, ok := chosenSeasons(req.GetSelections(), a)
 		if !ok {
@@ -416,9 +514,26 @@ func (p *plugin) RunWorkAction(ctx context.Context, req *pluginv1.RunWorkActionR
 		out.Message = t.T("okPending")
 	}
 	if fresh, err := p.detail(ctx, tg, kind, id, true); err == nil {
-		out.State = assess(kind, fresh, uid).state("", t, true)
+		out.State = assessAll(kind, fresh, uid, has4k).state("", t, true)
 	}
 	return out, nil
+}
+
+// Keys and values of the quality question.
+const (
+	optQuality      = "quality"
+	qualityStandard = "standard"
+	quality4K       = "4k"
+)
+
+// chosenQuality reads the answer to the quality question; "" when there is none.
+func chosenQuality(sel []*pluginv1.WorkSelection) string {
+	for _, s := range sel {
+		if s.GetKey() == optQuality && len(s.GetValues()) == 1 {
+			return s.GetValues()[0]
+		}
+	}
+	return ""
 }
 
 // chosenSeasons reads the answer to the seasons question and keeps it to seasons that could be requested. ok is false when nothing valid is left.
