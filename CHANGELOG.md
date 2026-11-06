@@ -2,6 +2,10 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.8.2
+
+- The Chinese titles of the "For you" tab and its row are shortened to the single word for "recommended" (English stays "For you").
+
 ## 0.8.1
 
 - The genre wall looks like Seerr's: each genre's picture is recoloured with the genre's two colours (TMDB's duotone filter, the same colours Seerr uses) and is the fifth backdrop of Seerr's genre slider, the first when there are fewer.

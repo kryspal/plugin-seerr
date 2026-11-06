@@ -99,7 +99,7 @@ func TestForYouPage(t *testing.T) {
 		t.Errorf("collection = %q %v", col.GetTitle(), keysOf(col))
 	}
 	fy := rowByID(t, pg, "for_you")
-	if !fy.GetRefreshable() || fy.GetTitle() != "為你推薦" || len(fy.GetWorks()) == 0 || fy.GetNextPageToken() != "" {
+	if !fy.GetRefreshable() || fy.GetTitle() != "推薦" || len(fy.GetWorks()) == 0 || fy.GetNextPageToken() != "" {
 		t.Errorf("for_you = %q refreshable %v, %d works", fy.GetTitle(), fy.GetRefreshable(), len(fy.GetWorks()))
 	}
 	for _, w := range fy.GetWorks() {
