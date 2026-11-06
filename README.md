@@ -47,6 +47,15 @@ The language of the lists follows Seerr's language setting (Settings, General; o
 
 Seerr lists posters and backdrops by their TMDB image path. The server downloads them through its image cache; viewers never connect to the image host.
 
+## Which sites a member's browser connects to
+
+The plugin itself talks only to the Seerr address the administrator sets. Posters and backdrops are fetched and cached by the server, so the browser never connects to an image host. The browser connects to other sites directly only when a member clicks a link that leaves the server, and each opens in a new tab:
+
+- **Trailers** on a title's page (at most two): the addresses come from Seerr's own data for the title, usually a video site.
+- **Seerr itself**, in the message a member gets when they have no Seerr account yet: the address shown to members (see Settings) or, when that is empty, the one the server uses.
+
+Nothing is loaded in the background and there is no embedded playback.
+
 ## Privacy
 
 The server passes a member's sign-in name and an opaque member code to this plugin so it can find the member's Seerr user. The plugin does not log the name and keeps the match in memory for five minutes.
