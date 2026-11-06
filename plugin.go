@@ -50,12 +50,13 @@ type plugin struct {
 	titles *titleCache
 	pages  *pageCache
 	people *creditCache
+	seeds  *seedCache
 	states *statusCache
 	genres *genreCache
 }
 
 func newPlugin() *plugin {
-	return &plugin{api: newAPI(), cache: newDetailCache(), users: newUserCache(), titles: newTitleCache(), pages: newPageCache(), people: newCreditCache(), states: newStatusCache(), genres: newGenreCache()}
+	return &plugin{api: newAPI(), cache: newDetailCache(), users: newUserCache(), titles: newTitleCache(), pages: newPageCache(), people: newCreditCache(), seeds: newSeedCache(), states: newStatusCache(), genres: newGenreCache()}
 }
 
 // Describe declares the two discover capabilities and the connection check. The settings are the address of the Seerr server and its API key.
@@ -65,7 +66,9 @@ func (p *plugin) Describe(_ context.Context, req *pluginv1.DescribeRequest) (*pl
 		Id: pluginID, Name: "Seerr", Description: t.T("desc"), Version: version(), ProtocolVersion: pluginv1.ProtocolVersion,
 		Capabilities: []string{pluginv1.CapabilityDiscoverSource, pluginv1.CapabilityWorkAction, pluginv1.CapabilityPluginChecks},
 		// Seerr usually runs on the local network.
-		Permissions: []string{pluginv1.PermissionLAN},
+		Permissions: []string{pluginv1.PermissionLAN, pluginv1.PermissionDiscoverSeeds},
+		// Seeds are the library works the host may send with a page request: only TMDB numbers are used, for rows after the library.
+		DiscoverSeedIds: []string{seedTMDB},
 		ConfigFields: []*pluginv1.ConfigField{
 			{Key: keyBaseURL, Type: pluginv1.ConfigFieldType_CONFIG_FIELD_TYPE_STRING, Required: true, Label: t.T("urlLabel"), Description: t.T("urlHelp"),
 				Placeholder: "http://192.168.1.20:5055"},
@@ -109,6 +112,7 @@ func (p *plugin) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	p.titles.clear()
 	p.pages.clear()
 	p.people.clear()
+	p.seeds.clear()
 	p.states.clear()
 	p.genres.clear()
 	return resp, nil

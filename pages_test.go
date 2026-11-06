@@ -414,7 +414,7 @@ func TestRecommendationsPage(t *testing.T) {
 	p, f := newTestPlugin(t)
 	pg := getPage(t, p, "rec:movie:603", "", "", "en")
 	r := pg.GetRows()[0]
-	if r.GetId() != "recommended" || len(r.GetWorks()) != 1 || r.GetNextPageToken() != "2" {
+	if r.GetId() != "recommended" || len(r.GetWorks()) != 20 || r.GetNextPageToken() != "2" {
 		t.Errorf("row = %v", r)
 	}
 	if q := f.last(t); q.path != "/api/v1/movie/603/recommendations" || strings.Contains(q.query, "language") {

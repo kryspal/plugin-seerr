@@ -2,6 +2,10 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 0.7.0
+
+- Rows made from the library (discover.seeds, off until the administrator allows it): on Home, the rest of the collections the seeds belong to and what Seerr recommends after the first three seeds. Nothing is shown without seeds, and seeds are used only to answer the request.
+
 ## 0.6.1
 
 - The Seerr address help says to use an IP address or a name the router knows, and that names ending in .local are not supported (the server and its plugins cannot resolve mDNS names). The connection check gives that reason when the address is a .local name and Seerr cannot be reached.

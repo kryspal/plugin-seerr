@@ -30,6 +30,8 @@ type fakeSeerr struct {
 	sliderDelay time.Duration
 	// trending, when set, is the answer of /discover/trending.
 	trending string
+	// collections is the answer of /collection/{id} by ID.
+	collections map[string]string
 	// genres, when set, replaces the genre list.
 	genres string
 	// deleted is a Seerr user ID that no longer exists: a call made for it (X-API-User) is refused with 403, as Seerr does.
@@ -117,7 +119,18 @@ func (f *fakeSeerr) handler(t *testing.T) http.Handler {
 		case strings.HasPrefix(path, "/person/"):
 			http.Error(w, `{"message":"Unable to retrieve person."}`, http.StatusInternalServerError)
 		case strings.HasSuffix(path, "/recommendations"):
-			_, _ = w.Write([]byte(f.listBody()))
+			if f.list != "" {
+				_, _ = w.Write([]byte(f.list))
+				return
+			}
+			page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+			_, _ = w.Write([]byte(f.listOf(strings.HasPrefix(path, "/tv/"), max(page, 1))))
+		case strings.HasPrefix(path, "/collection/"):
+			if body, ok := f.collections[strings.TrimPrefix(path, "/collection/")]; ok {
+				_, _ = w.Write([]byte(body))
+				return
+			}
+			http.NotFound(w, r)
 		case path == "/request" && r.Method == http.MethodGet:
 			if f.requests == "" {
 				_, _ = w.Write([]byte(`{"pageInfo":{"pages":0,"pageSize":20,"results":0,"page":1},"results":[]}`))
@@ -262,4 +275,17 @@ func (f *fakeSeerr) listOf(tv bool, page int) string {
 		rs = append(rs, `{"id":`+strconv.Itoa(id)+`,"mediaType":"`+kind+`","`+field+`":"T`+strconv.Itoa(id)+`","posterPath":"/p`+strconv.Itoa(id)+`.jpg"}`)
 	}
 	return `{"page":` + strconv.Itoa(page) + `,"totalPages":3,"totalResults":60,"results":[` + strings.Join(rs, ",") + `]}`
+}
+
+// countExact is the number of requests for exactly this path.
+func (f *fakeSeerr) countExact(path string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, r := range f.reqs {
+		if r.path == path {
+			n++
+		}
+	}
+	return n
 }

@@ -101,6 +101,9 @@ type pageDef struct {
 type rowSpec struct {
 	id    string
 	fetch func(ctx context.Context, pageNo int) (*pluginv1.DiscoverRow, error)
+	// keepAll: the row shows all its works even when an earlier row showed them (the rest of a collection must be whole). Its works still count
+	// as shown for the rows after it.
+	keepAll bool
 }
 
 // pageCtx is what the builders of one request share.
@@ -110,6 +113,12 @@ type pageCtx struct {
 	t   i18n.Translator
 	tag string
 	sel map[string][]string
+
+	// seeds are the library works of this request (discover.seeds), used for this request only; seedMu guards the lookups shared by its rows.
+	seeds  []seed
+	seedMu sync.Mutex
+	infos  map[string]*infoCall
+	cols   *collectionsCall
 }
 
 // GetDiscoverPage returns one page, or one row of it.
@@ -129,7 +138,7 @@ func (p *plugin) GetDiscoverPage(ctx context.Context, req *pluginv1.GetDiscoverP
 		}
 	}
 	tag := req.GetLanguages().GetLanguage()
-	pc := &pageCtx{p: p, tg: tg, t: messages.For(tag), tag: tag, sel: selected(req.GetSelections())}
+	pc := &pageCtx{p: p, tg: tg, t: messages.For(tag), tag: tag, sel: selected(req.GetSelections()), seeds: seedsOf(req.GetSeeds())}
 	var def *pageDef
 	switch ref.kind {
 	case refHome:
@@ -277,6 +286,10 @@ func (p *plugin) fillRow(ctx context.Context, spec rowSpec, row *pluginv1.Discov
 		return out
 	}
 	if hero {
+		keep(row.Works)
+		return nil
+	}
+	if spec.keepAll {
 		keep(row.Works)
 		return nil
 	}
@@ -449,6 +462,8 @@ func (pc *pageCtx) home(ctx context.Context) *pageDef {
 		}},
 	)
 	nosel := &pageCtx{p: pc.p, tg: pc.tg, t: pc.t, tag: pc.tag}
+	// Rows made from the library's works, only when the host sent seeds: the rest of a collection, then recommendations after a work.
+	def.rows = append(def.rows, pc.seedRows()...)
 	def.rows = append(def.rows,
 		nosel.filteredRow("popular_movies", "rowPopularMovies", kindMovie, nil, refMovies),
 		nosel.filteredRow("popular_series", "rowPopularSeries", kindTV, nil, refSeries),

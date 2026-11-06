@@ -212,6 +212,8 @@ type result struct {
 		AirDate      string `json:"airDate"`
 	} `json:"seasons"`
 	MediaInfo *mediaInfo `json:"mediaInfo"`
+	// Collection is the series of films a movie belongs to (details only).
+	Collection *named `json:"collection"`
 
 	// Credits lists (/person/{id}/combined_credits).
 	Character string `json:"character"`
@@ -339,3 +341,6 @@ func year(date string) int32 {
 	}
 	return int32(n)
 }
+
+// mustQuery is a one-pair query.
+func mustQuery(k, v string) url.Values { return url.Values{k: {v}} }

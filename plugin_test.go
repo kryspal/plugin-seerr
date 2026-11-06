@@ -72,7 +72,7 @@ func TestDescribe(t *testing.T) {
 	if len(m.GetWorkActions()) != 1 || m.GetWorkActions()[0].GetId() != "request" || m.GetWorkActions()[0].GetRequiredProviderIds()[0] != "tmdb" {
 		t.Errorf("work actions = %v", m.GetWorkActions())
 	}
-	if len(m.GetPermissions()) != 1 || m.GetPermissions()[0] != "network.lan" || len(m.GetFeatures()) != 0 {
+	if len(m.GetPermissions()) != 2 || m.GetPermissions()[0] != "network.lan" || m.GetPermissions()[1] != "discover.seeds" || len(m.GetDiscoverSeedIds()) != 1 || m.GetDiscoverSeedIds()[0] != "tmdb" || len(m.GetFeatures()) != 0 {
 		t.Errorf("permissions %v features %v", m.GetPermissions(), m.GetFeatures())
 	}
 	if strings.Contains(strings.ToLower(m.GetAttribution().GetText()), "tmdb") {
