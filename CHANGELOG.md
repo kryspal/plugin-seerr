@@ -2,6 +2,11 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 1.0.0
+
+- First public release. The plugin is the same as 0.8.4; the version number only marks the start of the public releases. It needs Kryspal Media 0.9.16 or newer.
+- README: the TMDB attribution.
+
 ## 0.8.4
 
 - My requests: the progress no longer runs high. A season pack that the queue lists once per episode counts once, and a download with no known size now leaves the percentage out instead of being skipped.

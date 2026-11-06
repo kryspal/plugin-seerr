@@ -10,7 +10,7 @@
     "zh-CN": "连接你自己的 Seerr 服务器，在“发现”页浏览并请求影视作品。"
   },
   "owner": "Kryspal Media",
-  "minServer": "0.9.15",
+  "minServer": "0.9.16",
   "homepage": "https://github.com/kryspal/plugin-seerr",
   "capabilities": [
     "discover.source",

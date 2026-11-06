@@ -62,4 +62,6 @@ The server passes a member's sign-in name and an opaque member code to this plug
 
 Implementation notes: [docs/design.md](docs/design.md).
 
+Posters, backdrops and other title data reach this plugin through Seerr, which gets them from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.
+
 Licensed under the Apache License 2.0 (see `LICENSE` and `NOTICE`). Seerr is a separate project; this plugin is not made or endorsed by it.
