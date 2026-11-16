@@ -15,6 +15,7 @@
   "capabilities": [
     "discover.source",
     "work.action",
+    "discover.calendar",
     "plugin.checks"
   ]
 }

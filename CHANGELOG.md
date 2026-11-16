@@ -2,6 +2,10 @@
 
 All notable changes to this plugin are listed here. The version in `VERSION` is the single source of the version number; a published version is never changed.
 
+## 1.1.0 (not released)
+
+- Calendar (`discover.calendar`): the release dates of the movies and the air dates of the episodes of the series a member requested, in a window of up to 62 days. Seerr has no calendar, so this is built from the member's requests and the details Seerr gives for each title. It needs the SDK that has `MemberCalendarProvider` and a server that supports it.
+
 ## 1.0.0
 
 - First public release. The plugin is the same as 0.8.4; the version number only marks the start of the public releases. It needs Kryspal Media 0.9.16 or newer.

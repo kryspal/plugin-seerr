@@ -195,6 +195,10 @@ type result struct {
 			Country string `json:"iso_3166_1"`
 			Dates   []struct {
 				Certification string `json:"certification"`
+				// ReleaseDate is an ISO time whose time of day is only a placeholder; Type is TMDB's release type: 1 premiere, 2 limited
+				// theatrical, 3 theatrical, 4 digital, 5 physical, 6 TV.
+				ReleaseDate string `json:"release_date"`
+				Type        int    `json:"type"`
 			} `json:"release_dates"`
 		} `json:"results"`
 	} `json:"releases"`
@@ -211,6 +215,8 @@ type result struct {
 		AirDate      string `json:"airDate"`
 	} `json:"seasons"`
 	MediaInfo *mediaInfo `json:"mediaInfo"`
+	// NextEpisodeToAir is the next episode of a series that is still airing (series details only).
+	NextEpisodeToAir *episode `json:"nextEpisodeToAir"`
 	// Collection is the series of films a movie belongs to (details only).
 	Collection *named `json:"collection"`
 
@@ -236,6 +242,14 @@ type result struct {
 		Name string `json:"name"`
 		URL  string `json:"url"`
 	} `json:"relatedVideos"`
+}
+
+// episode is one episode of a series; AirDate is a date (YYYY-MM-DD), empty when TMDB has none.
+type episode struct {
+	AirDate       string `json:"airDate"`
+	SeasonNumber  int    `json:"seasonNumber"`
+	EpisodeNumber int    `json:"episodeNumber"`
+	Name          string `json:"name"`
 }
 
 // named is a genre, a company or a network.

@@ -28,6 +28,7 @@ go vet ./... && go test ./...
 
 ![The request dialog for a series, with one checkbox for every season](docs/images/request-seasons.jpg)
 
+- **Calendar** (`discover.calendar`): the dates in a window that matter to the member, built from what Seerr already has, because Seerr has no calendar of its own. For the movies the member requested and that are not available yet, the cinema, streaming and disc dates (the date of the member's region when Seerr has one, else the United States, else the earliest); for the series the member requested, the episodes that air, with the premiere of a series or of a later season marked. Requests that were declined or failed are left out. It is asked only when the viewer opens the calendar: one call for the member's latest requests (up to 100), one detail lookup for each of at most 40 titles (kept for a day, shared with "My requests"), and one lookup of a season only when the next episode of its series falls in the window (kept for six hours). Nothing is polled in the background. There are no subscriptions or follows: Seerr has none.
 - **State**: each title shows what Seerr says: awaiting approval, processing, partly available, available, declined or failed. A title that is in your library always shows as in the library, whatever Seerr says.
 - **Test connection** (`plugin.checks`): a button on the settings page that checks the address and the API key.
 

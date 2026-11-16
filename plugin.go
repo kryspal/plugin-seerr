@@ -42,30 +42,32 @@ type plugin struct {
 	pluginv1.UnimplementedPluginServer
 	pluginv1.UnimplementedDiscoverSourceServer
 	pluginv1.UnimplementedWorkActionProviderServer
+	pluginv1.UnimplementedMemberCalendarProviderServer
 	pluginv1.UnimplementedCheckerServer
 
-	api    *api // replaceable in tests
-	cache  *detailCache
-	users  *userCache
-	titles *titleCache
-	pages  *pageCache
-	people *creditCache
-	seeds  *seedCache
-	states *statusCache
-	tiers  *tierCache
-	genres *genreCache
+	api     *api // replaceable in tests
+	cache   *detailCache
+	users   *userCache
+	titles  *titleCache
+	pages   *pageCache
+	people  *creditCache
+	seeds   *seedCache
+	states  *statusCache
+	tiers   *tierCache
+	genres  *genreCache
+	seasons *seasonCache
 }
 
 func newPlugin() *plugin {
-	return &plugin{api: newAPI(), cache: newDetailCache(), users: newUserCache(), titles: newTitleCache(), pages: newPageCache(), people: newCreditCache(), seeds: newSeedCache(), states: newStatusCache(), tiers: newTierCache(), genres: newGenreCache()}
+	return &plugin{api: newAPI(), cache: newDetailCache(), users: newUserCache(), titles: newTitleCache(), pages: newPageCache(), people: newCreditCache(), seeds: newSeedCache(), states: newStatusCache(), tiers: newTierCache(), genres: newGenreCache(), seasons: newSeasonCache()}
 }
 
-// Describe declares the two discover capabilities and the connection check. The settings are the address of the Seerr server and its API key.
+// Describe declares the discover capabilities (pages, request actions, calendar) and the connection check. The settings are the address of the Seerr server and its API key.
 func (p *plugin) Describe(_ context.Context, req *pluginv1.DescribeRequest) (*pluginv1.Manifest, error) {
 	t := messages.For(req.GetLanguage())
 	return &pluginv1.Manifest{
 		Id: pluginID, Name: "Seerr", Description: t.T("desc"), Version: version(), ProtocolVersion: pluginv1.ProtocolVersion,
-		Capabilities: []string{pluginv1.CapabilityDiscoverSource, pluginv1.CapabilityWorkAction, pluginv1.CapabilityPluginChecks},
+		Capabilities: []string{pluginv1.CapabilityDiscoverSource, pluginv1.CapabilityWorkAction, pluginv1.CapabilityDiscoverCalendar, pluginv1.CapabilityPluginChecks},
 		// Seerr usually runs on the local network.
 		Permissions: []string{pluginv1.PermissionLAN, pluginv1.PermissionDiscoverSeeds},
 		// Seeds are the library works the host may send with a page request: only TMDB numbers are used, for rows after the library.
@@ -117,6 +119,7 @@ func (p *plugin) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	p.states.clear()
 	p.tiers.clear()
 	p.genres.clear()
+	p.seasons.clear()
 	return resp, nil
 }
 
